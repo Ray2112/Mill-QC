@@ -1,6 +1,18 @@
 /* Textos de Produção PT (pré-AO90) / EN — chaves idênticas. Junta-se a window.I18N. */
 (function () {
   const pt = {
+    mode_seq: 'Sequência (silo a silo)', mode_blend: 'Mistura (%)', silosBlend: 'Toque nos silos da mistura e indique a % de cada um (soma 100) e a sua humidade e impurezas.',
+    silo: 'Silo', blendMoistNote: 'Na mistura, a humidade inicial e as impurezas são a média ponderada pela % de cada silo.', blendM0: 'Humidade inicial da mistura',
+    authGiven: 'Mistura fora da receita autorizada por {by}: {r}', remove: 'Retirar', authTitle: 'Silo(s) {s} fora da receita (cor/grau).',
+    authNote: 'Para misturar, um supervisor autoriza com nome, motivo e PIN. Fica registado na ordem.', authorize: 'Autorizar mistura',
+    authOnJob: 'Fora da receita ({s}) — autorizado por {by}: {r}',
+    je_blend_pct: 'Silo {silo}: indique a % na mistura', je_blend_m0: 'Silo {silo}: humidade inválida ou em falta', je_blend_imp: 'Silo {silo}: impurezas inválidas ou em falta',
+    je_blend_sum: 'As % da mistura somam {sum} — devem somar 100', je_blend_short: 'Silo {silo}: faltam {short} kg para a % pedida',
+    je_bin_capacity: 'Produto esperado {need} kg excede a capacidade dos silos de produto vazios ({cap} kg) — escolha mais silos',
+    jw_off_recipe_auth: 'Mistura fora da receita autorizada por {by}', jw_bin_level_unknown: 'Silo de produto já com este produto: nível desconhecido — confirmar espaço no local',
+    maizeMoisture: 'Humidade do milho (por turno)', needReading: 'Registe a humidade do milho deste turno', atStart: 'arranque', m0Now: 'Humidade do milho agora',
+    newWaterRate: 'Água: {lh} L/h para {m1} % (máx. {max})', overDampener: 'Excede o molhador — reduzir o caudal de grão', saveReading: 'Registar humidade',
+    readingSaved: 'Humidade registada — água {lh} L/h', capacityT: 'Capacidade (t)',
     nav_prod: 'Produção', ptab_jobs: 'Ordens', ptab_log: 'Diário de turno', ptab_bins: 'Silos de produto',
     grainStock: 'Stock de grão (app de Silos)', snapFrom: 'Stock exportado da app de Silos em {e} · importado em {i}',
     snapOld: 'Stock exportado antes do início deste turno — pode não estar actualizado. Importe uma cópia recente.',
@@ -63,11 +75,23 @@
     extractionAndRecipes: 'Extracção alvo e receitas por produto',
     recipeHelp: 'Receita = cor e grau de milho permitidos para o produto. Sem receita a ordem é bloqueada. Extracção vazia = sem produto esperado.',
     allowedColours: 'Cores permitidas', allowedGrades: 'Graus permitidos',
-    binsHelp: 'Um por linha ou separados por ";" — formato silo:linhas, ex.: 24:C,D',
+    binsHelp: 'Um por linha ou separados por ";" — formato silo:linhas:capacidade t, ex.: 34:C,D:60',
     floors: 'Pisos (limpeza)', floorsHelp: 'Lista separada por vírgulas, ex.: Piso 1, Piso 2. Usada como sugestão no diário.',
     jobOnLine: 'Ordem: {p} · {kg} kg · água {w} L/h · desde {h}'
   };
   const en = {
+    mode_seq: 'Sequence (silo by silo)', mode_blend: 'Blend (%)', silosBlend: 'Tap the blend silos and enter each one\'s % (total 100), moisture and impurities.',
+    silo: 'Silo', blendMoistNote: 'In a blend, initial moisture and impurities are the average weighted by each silo\'s %.', blendM0: 'Blend initial moisture',
+    authGiven: 'Off-recipe blend authorised by {by}: {r}', remove: 'Remove', authTitle: 'Silo(s) {s} outside the recipe (colour/grade).',
+    authNote: 'To blend, a supervisor authorises with name, reason and PIN. It is recorded on the job.', authorize: 'Authorise blend',
+    authOnJob: 'Off-recipe ({s}) — authorised by {by}: {r}',
+    je_blend_pct: 'Silo {silo}: enter its % in the blend', je_blend_m0: 'Silo {silo}: moisture missing or invalid', je_blend_imp: 'Silo {silo}: impurities missing or invalid',
+    je_blend_sum: 'Blend % add up to {sum} — must be 100', je_blend_short: 'Silo {silo}: {short} kg short for the requested %',
+    je_bin_capacity: 'Expected product {need} kg exceeds the capacity of the empty product bins ({cap} kg) — choose more bins',
+    jw_off_recipe_auth: 'Off-recipe blend authorised by {by}', jw_bin_level_unknown: 'Product bin already holds this product: level unknown — confirm space on site',
+    maizeMoisture: 'Maize moisture (per shift)', needReading: 'Record this shift\'s maize moisture', atStart: 'start', m0Now: 'Maize moisture now',
+    newWaterRate: 'Water: {lh} L/h for {m1} % (max {max})', overDampener: 'Exceeds the dampener — reduce grain feed', saveReading: 'Record moisture',
+    readingSaved: 'Moisture recorded — water {lh} L/h', capacityT: 'Capacity (t)',
     nav_prod: 'Production', ptab_jobs: 'Jobs', ptab_log: 'Shift log', ptab_bins: 'Product bins',
     grainStock: 'Grain stock (Silos app)', snapFrom: 'Stock exported from the Silos app on {e} · imported on {i}',
     snapOld: 'Stock was exported before this shift started — it may be out of date. Import a recent copy.',
@@ -130,7 +154,7 @@
     extractionAndRecipes: 'Target extraction and recipes per product',
     recipeHelp: 'Recipe = maize colour and grade allowed for the product. Without a recipe the job is blocked. Blank extraction = no expected product.',
     allowedColours: 'Allowed colours', allowedGrades: 'Allowed grades',
-    binsHelp: 'One per line or separated by ";" — format bin:lines, e.g. 24:C,D',
+    binsHelp: 'One per line or separated by ";" — format bin:lines:capacity t, e.g. 34:C,D:60',
     floors: 'Floors (housekeeping)', floorsHelp: 'Comma-separated list, e.g. Floor 1, Floor 2. Used as suggestions in the log.',
     jobOnLine: 'Job: {p} · {kg} kg · water {w} L/h · since {h}'
   };

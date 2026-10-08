@@ -1,27 +1,27 @@
 /* Moagem — Produção (ordens de produção, silos de produto, diário de turno).
  * Regras de negócio puras (sem DOM). Browser: window.Prod · Node: module.exports.
  * Dados fornecidos por Zhax (08-10-2026): linhas C 500 t/dia e D 300 t/dia; molhador máx. 2 500 L/h;
- * água calculada sobre o grão sujo; silos de produto e linhas que os alimentam: foto do ecrã "Flour Silos".
+ * água calculada sobre o grão sujo; silos de produto: 34, 35 (60 t), 40, 43–47 (188 t); linhas: foto "Flour Silos".
+ * Mistura de cores/graus permitida com autorização de supervisor; humidade do milho registada em cada turno.
  * Extracção alvo e receitas (cor/grau por produto) NÃO têm valores por defeito: definem-se com PIN.
  */
 (function (root) {
   'use strict';
 
-  const VERSION = '1.1.0';
+  const VERSION = '1.2.0';
   const COLOURS = ['Amarelo', 'Branco'];
   const SILO_GRADES = ['G1', 'G2', 'OFF', 'PRI'];          // designações da app de Silos (REJ nunca vai a moagem)
   const ISSUE_CATS = ['breakdown', 'process', 'quality', 'safety', 'utilities', 'other'];
   const ACT_TYPES = ['housekeeping', 'reprocessing', 'cleaning', 'maintenance', 'other'];
   const JOB_STATUS = ['running', 'done', 'cancelled'];
 
-  // Silos de produto (bins) com linha(s) de milho que os podem alimentar.
-  // Fonte: foto do ecrã SCADA "Flour Silos" (08-10-2026). A e B (trigo) ignorados a pedido.
-  const BIN_SOURCE = 'Ecrã "Flour Silos" (foto 08-10-2026)';
+  // Silos de produto (bins) de milho em uso, linha(s) que os alimentam e capacidade (t).
+  // Linhas: foto do ecrã SCADA "Flour Silos" (08-10-2026). Lista e capacidades: Zhax, 08-10-2026.
+  const BIN_SOURCE = 'Ecrã "Flour Silos" (foto 08-10-2026) + capacidades indicadas por Zhax (08-10-2026)';
   const DEFAULT_BINS = [
-    ['23', 'C'], ['24', 'CD'], ['34', 'CD'], ['35', 'CD'], ['37', 'C'], ['38', 'C'], ['39', 'D'],
-    ['40', 'C'], ['43', 'D'], ['44', 'C'], ['45', 'C'], ['46', 'C'], ['47', 'C'],
-    ['GRITS1', 'C'], ['GRITS2', 'C']
-  ].map(([id, l]) => ({ id, lines: l.split('') }));
+    ['34', 'CD', 60], ['35', 'CD', 60], ['40', 'C', 188], ['43', 'D', 188],
+    ['44', 'C', 188], ['45', 'C', 188], ['46', 'C', 188], ['47', 'C', 188]
+  ].map(([id, l, c]) => ({ id, lines: l.split(''), capT: c }));
 
   function defaultProdConfig() {
     return {
@@ -29,7 +29,7 @@
       dampenerMaxLh: 2500,             // molhador, máximo L/h — dado do utilizador
       extraction: {},                  // { productId: % } — vazio até definido com PIN
       recipes: {},                     // { productId: { colours:[], grades:[] } } — vazio até definido
-      bins: DEFAULT_BINS.map(b => ({ id: b.id, lines: b.lines.slice() })),
+      bins: DEFAULT_BINS.map(b => ({ id: b.id, lines: b.lines.slice(), capT: b.capT })),
       binSource: BIN_SOURCE,
       floors: []                       // pisos para limpeza — lista definida pela empresa
     };
@@ -173,21 +173,24 @@
   }
 
   // ---------- validação da ordem de produção ----------
-  // job: {productId, lineId, grainKg, silos:[ids em ordem], bins:[ids], m0, impurities, m1, feedTph, silosConfirmed}
+  // job: {productId, lineId, grainKg, mode:'seq'|'blend', silos:[ids em ordem], blend:{silo:{pct,m0,impurities}},
+  //       bins:[ids], m0, impurities, m1, feedTph, silosConfirmed, offRecipeAuth:{by,reason}|null}
+  //  - 'seq'  : esvazia o 1.º silo, depois o seguinte; humidade e impurezas do grão (uma leitura).
+  //  - 'blend': mistura em % por silo (soma 100); humidade/impurezas por silo → média ponderada.
+  //  Silos fora da receita (outra cor/grau) só com autorização de supervisor (PIN na interface).
   // ctx: {cfgP, millType, snapshot, jobs, binEvents, now, shiftStart}
-  // Devolve {errors:[{code,...}], warnings:[...], calc:{...}}. errors ⇒ a ordem é bloqueada.
+  // Devolve {errors:[{code,...}], warnings:[...], calc:{...}, values}. errors ⇒ a ordem é bloqueada.
   function validateJob(job, ctx) {
     const E = [], W = [], calc = {};
     const cfgP = ctx.cfgP;
+    const blend = job.mode === 'blend';
     if (!job.productId) E.push({ code: 'no_product' });
     if (!job.lineId) E.push({ code: 'no_line' });
     const kg = num(job.grainKg, 'kg');
     if (kg === null) E.push({ code: 'no_grain' });
     else if (isNaN(kg) || kg <= 0) E.push({ code: 'bad', field: 'grainKg' });
-    const m0 = num(job.m0), m1 = num(job.m1), imp = num(job.impurities);
-    if (m0 === null) E.push({ code: 'need', field: 'm0' }); else if (isNaN(m0) || m0 < 0 || m0 >= 100) E.push({ code: 'bad', field: 'm0' });
+    const m1 = num(job.m1);
     if (m1 === null) E.push({ code: 'need', field: 'm1' }); else if (isNaN(m1) || m1 <= 0 || m1 >= 100) E.push({ code: 'bad', field: 'm1' });
-    if (imp === null) E.push({ code: 'need', field: 'impurities' }); else if (isNaN(imp) || imp < 0 || imp > 100) E.push({ code: 'bad', field: 'impurities' });
     let tph = num(job.feedTph);
     if (tph === null) tph = job.lineId ? defaultFeedTph(cfgP, job.lineId) : null;
     if (tph === null || isNaN(tph) || tph <= 0) E.push({ code: 'bad', field: 'feedTph' });
@@ -200,9 +203,17 @@
     const silos = (job.silos || []).filter(Boolean);
     const snap = ctx.snapshot;
     const recipe = cfgP.recipes && cfgP.recipes[job.productId];
+    const auth = job.offRecipeAuth && String(job.offRecipeAuth.by || '').trim() && String(job.offRecipeAuth.reason || '').trim() ? job.offRecipeAuth : null;
     if (job.productId && !recipeSet(recipe)) E.push({ code: 'recipe_not_set' });
     if (!snap) E.push({ code: 'no_snapshot' });
     if (!silos.length) E.push({ code: 'no_silo' });
+    calc.offRecipe = [];
+    let m0 = null, imp = null;
+    if (!blend) {
+      m0 = num(job.m0); imp = num(job.impurities);
+      if (m0 === null) E.push({ code: 'need', field: 'm0' }); else if (isNaN(m0) || m0 < 0 || m0 >= 100) E.push({ code: 'bad', field: 'm0' });
+      if (imp === null) E.push({ code: 'need', field: 'impurities' }); else if (isNaN(imp) || imp < 0 || imp > 100) E.push({ code: 'bad', field: 'impurities' });
+    }
     if (snap && silos.length) {
       if (new Set(silos).size !== silos.length) E.push({ code: 'silo_dup' });
       const slots = [];
@@ -211,17 +222,48 @@
         if (!s) { E.push({ code: 'silo_unknown', silo: id }); return; }
         if (recipeSet(recipe)) {
           const f = recipeFit(recipe, s, ctx.millType);
-          if (!f.ok) E.push({ code: 'silo_incompatible', silo: id, why: f.why, colour: s.colour, grade: s.grade });
+          if (!f.ok) {
+            // cor ou grau fora da receita: mistura permitida com autorização; outro cereal/sem designação: nunca
+            if ((f.why === 'colour' || f.why === 'grade') && auth) calc.offRecipe.push({ silo: id, why: f.why, colour: s.colour, grade: s.grade });
+            else E.push({ code: 'silo_incompatible', silo: id, why: f.why, colour: s.colour, grade: s.grade, canAuth: f.why === 'colour' || f.why === 'grade' });
+          }
         }
         if (s.openEvent && isNum(s.openLevel) && s.openLevel >= 4) E.push({ code: 'silo_red', silo: id });
         else if (s.openEvent) W.push({ code: 'silo_event', silo: id });
         slots.push({ id, avail: availableKg(snap, ctx.jobs, id) || 0 });
       });
-      if (isNum(kg) && kg > 0) {
+      if (calc.offRecipe.length) W.push({ code: 'off_recipe_auth', by: auth.by });
+      if (blend) {
+        // percentagens, humidade e impurezas por silo
+        let sum = 0, mw = 0, iw = 0, okM = true, okI = true;
+        const parts = [];
+        silos.forEach(id => {
+          const b = (job.blend || {})[id] || {};
+          const pct = num(b.pct), bm = num(b.m0), bi = num(b.impurities);
+          if (pct === null || isNaN(pct) || pct <= 0 || pct > 100) { E.push({ code: 'blend_pct', silo: id }); return; }
+          if (bm === null || isNaN(bm) || bm < 0 || bm >= 100) { E.push({ code: 'blend_m0', silo: id }); okM = false; }
+          if (bi === null || isNaN(bi) || bi < 0 || bi > 100) { E.push({ code: 'blend_imp', silo: id }); okI = false; }
+          sum += pct;
+          if (okM && isNum(bm)) mw += pct * bm;
+          if (okI && isNum(bi)) iw += pct * bi;
+          parts.push({ id, pct });
+        });
+        if (parts.length === silos.length && Math.abs(sum - 100) > 0.01) E.push({ code: 'blend_sum', sum: Math.round(sum * 100) / 100 });
+        if (Math.abs(sum - 100) <= 0.01 && parts.length === silos.length) {
+          if (okM) m0 = Math.round(mw / 100 * 100) / 100;
+          if (okI) imp = Math.round(iw / 100 * 100) / 100;
+          if (isNum(kg) && kg > 0) {
+            calc.alloc = parts.map(p => ({ silo: p.id, kg: Math.round(kg * p.pct / 100 * 1000) / 1000, pct: p.pct }));
+            calc.alloc.forEach(a => {
+              const sl = slots.find(x => x.id === a.silo);
+              if (sl && a.kg > sl.avail) E.push({ code: 'blend_short', silo: a.silo, short: Math.round((a.kg - sl.avail) * 1000) / 1000 });
+            });
+          }
+        }
+      } else if (isNum(kg) && kg > 0) {
         const a = allocate(kg, slots);
         calc.alloc = a.parts;
         if (a.short > 0) E.push({ code: 'silo_short', short: a.short });
-        // um silo seleccionado que não chega a ser usado
         silos.forEach(id => { if (!a.parts.some(p => p.silo === id) && a.short === 0) W.push({ code: 'silo_unused', silo: id }); });
       }
       const exp = snap.exportedAt ? Date.parse(snap.exportedAt) : snap.importedAt;
@@ -230,17 +272,33 @@
     }
     if (!job.silosConfirmed) E.push({ code: 'confirm_silos' });
 
-    // silos de produto
+    // produto esperado
+    const ext = cfgP.extraction && cfgP.extraction[job.productId];
+    if (isNum(kg) && kg > 0 && isNum(ext)) calc.expectedKg = r0(kg * ext / 100);
+    else if (job.productId) W.push({ code: 'no_extraction' });
+    calc.extraction = isNum(ext) ? ext : null;
+
+    // silos de produto: linha, produto, capacidade
     const bins = (job.bins || []).filter(Boolean);
     if (!bins.length) E.push({ code: 'no_bin' });
+    let capKnown = 0, unknownLevel = false, missingCap = false;
     bins.forEach(id => {
       const b = cfgP.bins.find(x => x.id === id);
       const r = binCheck(b, job.productId, job.lineId, ctx.binEvents);
-      if (!r.ok) E.push({ code: r.why, bin: id, current: r.current });
+      if (!r.ok) { E.push({ code: r.why, bin: id, current: r.current }); return; }
+      if (!isNum(b.capT)) missingCap = true;
+      else if (r.current) unknownLevel = true;            // já tem o mesmo produto: nível desconhecido
+      else capKnown += b.capT * 1000;
     });
+    calc.binCapKg = capKnown;
+    if (bins.length && isNum(calc.expectedKg) && !missingCap) {
+      if (!unknownLevel && calc.expectedKg > capKnown) E.push({ code: 'bin_capacity', need: calc.expectedKg, cap: capKnown });
+      else if (unknownLevel && calc.expectedKg > capKnown) W.push({ code: 'bin_level_unknown' });
+    }
 
     // água
     if (isNum(kg) && kg > 0 && isNum(m0) && isNum(m1) && m0 >= 0 && m1 > 0 && m1 < 100) {
+      calc.m0 = m0; calc.impurities = imp;
       calc.waterL = r0(waterFor(kg, m0, m1));
       if (m1 <= m0) W.push({ code: 'no_water' });
       if (isNum(tph) && tph > 0) {
@@ -250,29 +308,41 @@
         if (isNum(cfgP.dampenerMaxLh) && calc.waterLh > cfgP.dampenerMaxLh) E.push({ code: 'dampener_max', need: calc.waterLh, max: cfgP.dampenerMaxLh });
       }
     }
-    // produto esperado
-    const ext = cfgP.extraction && cfgP.extraction[job.productId];
-    if (isNum(kg) && kg > 0 && isNum(ext)) calc.expectedKg = r0(kg * ext / 100);
-    else if (job.productId) W.push({ code: 'no_extraction' });
-    calc.extraction = isNum(ext) ? ext : null;
     return { errors: E, warnings: W, calc, values: { grainKg: kg, m0, m1, impurities: imp, feedTph: tph } };
   }
 
+  // ---------- humidade do milho por turno (ordem em curso) ----------
+  // Cada turno regista a humidade do milho a entrar; recalcula o caudal de água para o alvo da ordem.
+  function readingCalc(job, m0) {
+    const v = num(m0);
+    if (v === null || isNaN(v) || v < 0 || v >= 100) return { error: 'bad' };
+    const lh = r0(waterRate(job.feedTph, v, job.m1));
+    return { m0: v, waterLh: lh, over: isNum(job.dampenerMaxLh) && lh > job.dampenerMaxLh, noWater: v >= job.m1 };
+  }
+  // Falta a leitura deste turno? (a leitura de arranque conta se a ordem começou neste turno)
+  function needsShiftReading(job, shiftStart) {
+    if (!job || job.status !== 'running') return false;
+    if (job.startedAt >= shiftStart) return false;
+    return !(job.readings || []).some(r => r.t >= shiftStart);
+  }
+
   // ---------- configuração de produção: validação ----------
-  // Texto de silos de produto: "23:C; 24:C,D" ou linhas "23 C D"
+  // Texto de silos de produto: "34:C,D:60; 45:C:188" (silo:linhas:capacidade t, capacidade opcional)
   function parseBins(text, lineIds) {
     const out = [], errors = [];
     String(text || '').split(/[;\n]+/).map(s => s.trim()).filter(Boolean).forEach(part => {
-      const m = part.match(/^([A-Za-z0-9-]{1,12})\s*[:\s]\s*([A-Za-z,\s]+)$/);
+      const m = part.match(/^([A-Za-z0-9-]{1,12})\s*:\s*([A-Za-z,\s]+?)\s*(?::\s*([0-9.,]+)\s*t?)?$/);
       if (!m) { errors.push(part); return; }
       const lines = [...new Set(m[2].toUpperCase().split(/[,\s]+/).filter(Boolean).join('').split(''))];
       if (!lines.length || lines.some(l => lineIds.indexOf(l) < 0)) { errors.push(part); return; }
       if (out.some(b => b.id === m[1].toUpperCase())) { errors.push(part); return; }
-      out.push({ id: m[1].toUpperCase(), lines: lines.sort() });
+      let capT = null;
+      if (m[3] !== undefined) { capT = num(m[3]); if (capT === null || isNaN(capT) || capT <= 0) { errors.push(part); return; } }
+      out.push({ id: m[1].toUpperCase(), lines: lines.sort(), capT });
     });
     return { bins: out, errors };
   }
-  const binsText = bins => bins.map(b => b.id + ':' + b.lines.join(',')).join('; ');
+  const binsText = bins => bins.map(b => b.id + ':' + b.lines.join(',') + (isNum(b.capT) ? ':' + b.capT : '')).join('; ');
 
   function validateProdConfig(c) {
     const e = [];
@@ -326,8 +396,9 @@
   // range: [início, fim) do turno em ms; d: {log, jobs, now}
   function shiftSummary(day, period, range, d) {
     const log = effectiveLog(d.log).filter(x => x.prodDay === day && x.period === period);
-    const issues = log.filter(x => x.kind === 'issue').sort((a, b) => a.t - b.t);
-    const acts = log.filter(x => x.kind === 'activity').sort((a, b) => a.t - b.t);
+    const byTime = (a, b) => a.t - b.t || (a.createdAt || 0) - (b.createdAt || 0);   // mesma hora: ordem de gravação
+    const issues = log.filter(x => x.kind === 'issue').sort(byTime);
+    const acts = log.filter(x => x.kind === 'activity').sort(byTime);
     const now = isNum(d.now) ? d.now : Date.now();
     const jobs = (d.jobs || []).filter(j => j.startedAt < range[1] && (j.closedAt || now) >= range[0]).sort((a, b) => a.startedAt - b.startedAt);
     const downtime = issues.reduce((s, i) => s + (isNum(i.downtimeMin) ? i.downtimeMin : 0), 0);
@@ -351,7 +422,7 @@
 
   const api = { VERSION, COLOURS, SILO_GRADES, ISSUE_CATS, ACT_TYPES, JOB_STATUS, DEFAULT_BINS, BIN_SOURCE,
     defaultProdConfig, num, waterFor, waterRate, defaultFeedTph, siloKg, snapshotFromSilosBackup, committedAfter,
-    availableKg, allocate, recipeSet, recipeFit, binState, binCheck, validateJob, parseBins, binsText,
+    availableKg, allocate, recipeSet, recipeFit, binState, binCheck, validateJob, readingCalc, needsShiftReading, parseBins, binsText,
     validateProdConfig, prodConfigDiff, effectiveLog, validateIssue, validateActivity, shiftSummary, uid, validProdBackup };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Prod = api;

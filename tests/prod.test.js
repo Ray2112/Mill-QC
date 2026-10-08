@@ -30,10 +30,12 @@ t('caudal por defeito = capacidade/24', () => {
   assert.strictEqual(P.defaultFeedTph(c, 'X'), null);
 });
 
-t('silos de produto por defeito: só C/D, D alimenta 24, 34, 35, 39, 43', () => {
+t('silos de produto por defeito: 8 silos; D alimenta 34, 35, 43; 34/35 60 t, resto 188 t', () => {
   const c = P.defaultProdConfig();
-  assert.strictEqual(c.bins.length, 15);
-  assert.deepStrictEqual(c.bins.filter(b => b.lines.includes('D')).map(b => b.id), ['24', '34', '35', '39', '43']);
+  assert.deepStrictEqual(c.bins.map(b => b.id).sort(), ['34', '35', '40', '43', '44', '45', '46', '47']);
+  assert.deepStrictEqual(c.bins.filter(b => b.lines.includes('D')).map(b => b.id), ['34', '35', '43']);
+  assert.deepStrictEqual(c.bins.filter(b => b.capT === 60).map(b => b.id), ['34', '35']);
+  assert.ok(c.bins.filter(b => b.capT === 188).length === 6);
   assert.ok(c.bins.every(b => b.lines.every(l => l === 'C' || l === 'D')));
   assert.deepStrictEqual(c.extraction, {});
   assert.deepStrictEqual(c.recipes, {});
@@ -94,15 +96,15 @@ t('receita: cor e grau; receita em falta bloqueia', () => {
 
 t('silo de produto: linha e produto diferente', () => {
   const c = P.defaultProdConfig();
-  const b39 = c.bins.find(b => b.id === '39');
-  assert.strictEqual(P.binCheck(b39, 'super', 'C', []).why, 'bin_line');
-  assert.strictEqual(P.binCheck(b39, 'super', 'D', []).ok, true);
-  const ev = [{ binId: '39', type: 'FILL', productId: 'fuba1', t: 1 }];
-  const r = P.binCheck(b39, 'super', 'D', ev);
+  const b43 = c.bins.find(b => b.id === '43');
+  assert.strictEqual(P.binCheck(b43, 'super', 'C', []).why, 'bin_line');
+  assert.strictEqual(P.binCheck(b43, 'super', 'D', []).ok, true);
+  const ev = [{ binId: '43', type: 'FILL', productId: 'fuba1', t: 1 }];
+  const r = P.binCheck(b43, 'super', 'D', ev);
   assert.strictEqual(r.why, 'bin_other_product'); assert.strictEqual(r.current, 'fuba1');
-  assert.strictEqual(P.binCheck(b39, 'fuba1', 'D', ev).ok, true);         // mesmo produto: pode continuar
-  ev.push({ binId: '39', type: 'EMPTY', t: 2 });
-  assert.strictEqual(P.binCheck(b39, 'super', 'D', ev).ok, true);         // vazio
+  assert.strictEqual(P.binCheck(b43, 'fuba1', 'D', ev).ok, true);         // mesmo produto: pode continuar
+  ev.push({ binId: '43', type: 'EMPTY', t: 2 });
+  assert.strictEqual(P.binCheck(b43, 'super', 'D', ev).ok, true);         // vazio
   assert.strictEqual(P.binCheck(undefined, 'super', 'D', ev).why, 'bin_unknown');
 });
 
@@ -113,7 +115,7 @@ function ctx(extra) {
   return Object.assign({ cfgP, millType: 'maize', snapshot: P.snapshotFromSilosBackup(silosBackup, Date.parse('2026-10-08T06:00:00Z')),
     jobs: [], binEvents: [], shiftStart: Date.parse('2026-10-08T06:00:00Z') }, extra || {});
 }
-const baseJob = () => ({ productId: 'super', lineId: 'C', grainKg: '100.000', silos: ['S1', 'S2'], bins: ['23', '24'],
+const baseJob = () => ({ productId: 'super', lineId: 'C', grainKg: '100.000', silos: ['S1', 'S2'], bins: ['45', '44'],
   m0: '12,0', impurities: '1,5', m1: '16', feedTph: '', silosConfirmed: true });
 const codes = r => r.errors.map(e => e.code);
 
@@ -149,13 +151,13 @@ t('silo com evento de armazenagem Vermelho bloqueia', () => {
 });
 
 t('silo de produto com outro produto bloqueia', () => {
-  const r = P.validateJob(baseJob(), ctx({ binEvents: [{ binId: '24', type: 'FILL', productId: 'fuba2', t: 1 }] }));
+  const r = P.validateJob(baseJob(), ctx({ binEvents: [{ binId: '44', type: 'FILL', productId: 'fuba2', t: 1 }] }));
   const e = r.errors.find(x => x.code === 'bin_other_product');
-  assert.ok(e); assert.strictEqual(e.bin, '24'); assert.strictEqual(e.current, 'fuba2');
+  assert.ok(e); assert.strictEqual(e.bin, '44'); assert.strictEqual(e.current, 'fuba2');
 });
 
 t('silo de produto que a linha não alimenta bloqueia', () => {
-  const j = baseJob(); j.lineId = 'D'; j.bins = ['23'];
+  const j = baseJob(); j.lineId = 'D'; j.bins = ['45'];
   assert.ok(codes(P.validateJob(j, ctx())).includes('bin_line'));
 });
 
@@ -208,12 +210,90 @@ t('silo repetido e silo desconhecido', () => {
   assert.ok(c.includes('silo_dup')); assert.ok(c.includes('silo_unknown'));
 });
 
+
+t('capacidade dos silos de produto', () => {
+  // 100 t de grão × 70 % = 70 t; 34 (60 t) não chega, 34+35 (120 t) chega
+  const j = baseJob(); j.bins = ['34'];
+  const r = P.validateJob(j, ctx());
+  const e = r.errors.find(x => x.code === 'bin_capacity');
+  assert.ok(e); assert.strictEqual(e.need, 70000); assert.strictEqual(e.cap, 60000);
+  j.bins = ['34', '35'];
+  assert.ok(!codes(P.validateJob(j, ctx())).includes('bin_capacity'));
+  // silo de produto já com o mesmo produto: nível desconhecido → aviso, não bloqueio
+  j.bins = ['34'];
+  const r2 = P.validateJob(j, ctx({ binEvents: [{ binId: '34', type: 'FILL', productId: 'super', t: 1 }] }));
+  assert.ok(!codes(r2).includes('bin_capacity'));
+  assert.ok(r2.warnings.some(w => w.code === 'bin_level_unknown'));
+  // sem extracção: sem verificação de capacidade (aviso no_extraction)
+  const c = ctx(); delete c.cfgP.extraction.super;
+  assert.ok(!codes(P.validateJob(Object.assign(baseJob(), { bins: ['34'] }), c)).includes('bin_capacity'));
+});
+
+t('mistura: percentagens, humidade ponderada, stock por silo', () => {
+  const j = baseJob(); j.mode = 'blend'; j.m0 = ''; j.impurities = '';
+  j.blend = { S1: { pct: '40', m0: '12', impurities: '1' }, S2: { pct: '60', m0: '14', impurities: '2' } };
+  const r = P.validateJob(j, ctx());
+  assert.deepStrictEqual(codes(r), []);
+  assert.strictEqual(r.calc.m0, 13.2);                    // 0,4×12 + 0,6×14
+  assert.strictEqual(r.calc.impurities, 1.6);
+  assert.deepStrictEqual(r.calc.alloc, [{ silo: 'S1', kg: 40000, pct: 40 }, { silo: 'S2', kg: 60000, pct: 60 }]);
+  assert.strictEqual(r.calc.waterL, Math.round(100000 * (16 - 13.2) / 84));
+  j.blend.S1.pct = '70';                                  // 70 000 de S1 (60 000 disponível) e soma 130
+  const r2 = P.validateJob(j, ctx());
+  assert.ok(r2.errors.some(e => e.code === 'blend_sum' && e.sum === 130));
+  j.blend.S2.pct = '30';
+  const r3 = P.validateJob(j, ctx());
+  const sh = r3.errors.find(e => e.code === 'blend_short');
+  assert.ok(sh); assert.strictEqual(sh.silo, 'S1'); assert.strictEqual(sh.short, 10000);
+  j.blend.S2.m0 = 'x';
+  assert.ok(codes(P.validateJob(j, ctx())).includes('blend_m0'));
+  j.blend.S2 = { pct: '', m0: '14', impurities: '1' };
+  assert.ok(codes(P.validateJob(j, ctx())).includes('blend_pct'));
+});
+
+t('mistura de cor/grau fora da receita só com autorização', () => {
+  const j = baseJob(); j.mode = 'blend'; j.silos = ['S2', 'S3', 'S4'];
+  j.blend = { S2: { pct: '50', m0: '12', impurities: '1' }, S3: { pct: '25', m0: '12', impurities: '1' }, S4: { pct: '25', m0: '12', impurities: '1' } };
+  const r = P.validateJob(j, ctx());
+  const inc = r.errors.filter(e => e.code === 'silo_incompatible');
+  assert.deepStrictEqual(inc.map(e => e.why), ['colour', 'grade']);
+  assert.ok(inc.every(e => e.canAuth));
+  j.offRecipeAuth = { by: 'Sup', reason: '' };               // sem motivo não conta
+  assert.ok(codes(P.validateJob(j, ctx())).includes('silo_incompatible'));
+  j.offRecipeAuth = { by: 'Sup', reason: 'falta de milho branco G1' };
+  const r2 = P.validateJob(j, ctx());
+  assert.ok(!codes(r2).includes('silo_incompatible'));
+  assert.deepStrictEqual(r2.calc.offRecipe.map(x => x.silo), ['S3', 'S4']);
+  assert.ok(r2.warnings.some(w => w.code === 'off_recipe_auth'));
+  // outro cereal nunca é autorizável
+  const c = ctx(); c.snapshot.silos.push({ id: 'T1', cereal: 'Trigo', colour: '', grade: 'G1', kg: 50000 });
+  j.silos = ['S2', 'T1']; j.blend = { S2: { pct: '50', m0: '12', impurities: '1' }, T1: { pct: '50', m0: '12', impurities: '1' } };
+  const r3 = P.validateJob(j, c);
+  assert.ok(r3.errors.some(e => e.code === 'silo_incompatible' && e.why === 'other_cereal' && !e.canAuth));
+});
+
+t('humidade do milho por turno: recalcula o caudal de água', () => {
+  const job = { status: 'running', startedAt: 1000, feedTph: 500 / 24, m1: 16, dampenerMaxLh: 2500, readings: [] };
+  const r = P.readingCalc(job, '13,0');
+  assert.strictEqual(r.m0, 13); assert.strictEqual(r.waterLh, Math.round(20833.333 * 3 / 84)); assert.strictEqual(r.over, false);
+  assert.strictEqual(P.readingCalc(job, '6').over, false);   // 20 833 × 10/84 = 2 480 L/h
+  assert.strictEqual(P.readingCalc(job, '5').over, true);    // 20 833 × 11/84 = 2 728 L/h > 2 500
+  assert.strictEqual(P.readingCalc(job, '17').noWater, true);
+  assert.strictEqual(P.readingCalc(job, 'x').error, 'bad');
+  assert.strictEqual(P.needsShiftReading(job, 500), false);  // começou neste turno
+  assert.strictEqual(P.needsShiftReading(job, 2000), true);  // turno seguinte, sem leitura
+  job.readings.push({ t: 2100 });
+  assert.strictEqual(P.needsShiftReading(job, 2000), false);
+  assert.strictEqual(P.needsShiftReading(Object.assign({}, job, { status: 'done' }), 5000), false);
+});
+
 t('texto de silos de produto', () => {
-  const r = P.parseBins('23:C; 24:C,D\n39 D', ['C', 'D']);
-  assert.deepStrictEqual(r.bins, [{ id: '23', lines: ['C'] }, { id: '24', lines: ['C', 'D'] }, { id: '39', lines: ['D'] }]);
+  const r = P.parseBins('34:C,D:60; 45:C:188\n46:C', ['C', 'D']);
+  assert.deepStrictEqual(r.bins, [{ id: '34', lines: ['C', 'D'], capT: 60 }, { id: '45', lines: ['C'], capT: 188 }, { id: '46', lines: ['C'], capT: null }]);
   assert.deepStrictEqual(r.errors, []);
-  assert.deepStrictEqual(P.parseBins('23:X; 24:C; 24:D', ['C', 'D']).errors, ['23:X', '24:D']);
-  assert.strictEqual(P.binsText(r.bins), '23:C; 24:C,D; 39:D');
+  assert.deepStrictEqual(P.parseBins('23:X; 24:C; 24:D; 25:C:0; 26:C:abc', ['C', 'D']).errors, ['23:X', '24:D', '25:C:0', '26:C:abc']);
+  assert.strictEqual(P.binsText(r.bins), '34:C,D:60; 45:C:188; 46:C');
+  assert.deepStrictEqual(P.parseBins(P.binsText(P.defaultProdConfig().bins), ['C', 'D']).bins, P.defaultProdConfig().bins);
 });
 
 t('configuração: validação e diferenças', () => {
@@ -241,6 +321,11 @@ t('diário: validação, anulação e resumo do turno', () => {
     { uid: 'a2', kind: 'activity', prodDay: '2026-10-08', period: 'N', t: 9, type: 'cleaning' }
   ];
   const jobs = [{ uid: 'j1', startedAt: 100, closedAt: 200 }, { uid: 'j2', startedAt: 1000 }, { uid: 'j3', startedAt: 10, closedAt: 50 }];
+  log.push({ uid: 'zz', kind: 'activity', prodDay: '2026-10-08', period: 'D', t: 1, createdAt: 5, type: 'cleaning' });
+  log.find(x => x.uid === 'a1').createdAt = 9;
+  const s0 = P.shiftSummary('2026-10-08', 'D', [60, 500], { log, jobs, now: 2000 });
+  assert.deepStrictEqual(s0.acts.map(a => a.uid), ['zz', 'a1']);           // mesma hora → ordem de gravação
+  log.pop();
   const s = P.shiftSummary('2026-10-08', 'D', [60, 500], { log, jobs, now: 2000 });
   assert.strictEqual(s.issues.length, 2); assert.strictEqual(s.acts.length, 1);
   assert.strictEqual(s.downtimeMin, 45); assert.strictEqual(s.openIssues, 1);

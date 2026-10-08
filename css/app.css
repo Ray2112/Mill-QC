@@ -73,3 +73,7 @@ nav.bottom{position:fixed;bottom:0;left:0;right:0;display:flex;background:#fff;b
 .chk{display:flex;gap:8px;align-items:flex-start;font-size:14px;margin:8px 0}.chk input{width:20px;height:20px;flex:none}
 .kpis.k4{grid-template-columns:repeat(4,1fr)}.dec .li{text-align:left;font-size:14px;margin-top:3px}
 .job{border-color:var(--line)}
+table.blend{table-layout:fixed;width:100%}table.blend th,table.blend td{white-space:normal;padding:4px;font-size:12px;vertical-align:bottom}
+table.blend th:first-child,table.blend td:first-child{width:44px}
+table.blend input{width:100%;min-width:0;font-size:16px;padding:7px 6px;border:1px solid #c9d2c8;border-radius:8px}
+.seg.mode{margin:4px 0 6px}.seg.mode button{flex:1}
