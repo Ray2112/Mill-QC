@@ -16,7 +16,7 @@ L.MILL_TYPES.forEach(m => dyn.push('mill_' + m)); L.FREQS.forEach(f => dyn.push(
 ['hold', 'warn', 'ok', 'stopped', 'nodata'].forEach(s => dyn.push('st_' + s)); ['open', 'action', 'closed'].forEach(s => dyn.push('hs_' + s)); ['D', 'N'].forEach(s => dyn.push('shift_' + s));
 ['home', 'sample', 'holds', 'prod', 'records', 'report', 'settings'].forEach(s => dyn.push('nav_' + s));
 ['jobs', 'log', 'bins'].forEach(s => dyn.push('ptab_' + s)); P.JOB_STATUS.forEach(s => dyn.push('js_' + s));
-P.ISSUE_CATS.forEach(c => dyn.push('ic_' + c)); P.ACT_TYPES.forEach(c => dyn.push('at_' + c)); P.SILO_GRADES.concat(['none']).forEach(g => dyn.push('g_' + g));
+P.ACT_TYPES.forEach(c => dyn.push('at_' + c)); P.SILO_GRADES.concat(['none']).forEach(g => dyn.push('g_' + g));
 // códigos de erro/aviso: extrair de js/prod.js
 const src = fs.readFileSync('js/prod.js', 'utf8');
 for (const m of src.matchAll(/E\.push\(\{ code: '([a-z_]+)'/g)) dyn.push('je_' + m[1]);
@@ -24,6 +24,7 @@ for (const m of src.matchAll(/E\.push\(\{ code: r\.why/g)) ['bin_unknown', 'bin_
 for (const m of src.matchAll(/W\.push\(\{ code: '([a-z_]+)'/g)) dyn.push('jw_' + m[1]);
 for (const m of src.matchAll(/why: '([a-z_]+)'/g)) if (!m[1].startsWith('bin_')) dyn.push('why_' + m[1]);
 for (const m of src.matchAll(/field: '([a-zA-Z]+)'/g)) dyn.push('f_' + m[1]);
+['P', 'A', 'O'].forEach(g => dyn.push('cg_' + g));
 for (const m of src.matchAll(/e\.push\('([a-zA-Z]+)'\)/g)) if (!/^(bins|dampenerMaxLh)$/.test(m[1])) dyn.push('f_' + m[1]);
 const missDyn = [...new Set(dyn)].filter(k => !pk.includes(k));
 if (missDyn.length) problems.push('missing dyn ' + missDyn);

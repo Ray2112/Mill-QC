@@ -1,6 +1,9 @@
 /* Textos de Produção PT (pré-AO90) / EN — chaves idênticas. Junta-se a window.I18N. */
 (function () {
   const pt = {
+    actionCol: 'Acção tomada', maizeMoistureCol: 'Humidade do milho', downtimeCode: 'Código de paragem', noStopCode: 'sem paragem', cg_P: 'P — Processo', cg_A: 'A — Avarias', cg_O: 'O — Outras',
+    codeName: 'Descrição do código', decisionCol: 'Decisão', f_code: 'código de paragem (obrigatório com paragem)', byTier3: 'Paragem por Tier 3',
+    codesSource: 'Códigos: {s}',
     mode_seq: 'Sequência (silo a silo)', mode_blend: 'Mistura (%)', silosBlend: 'Toque nos silos da mistura e indique a % de cada um (soma 100) e a sua humidade e impurezas.',
     silo: 'Silo', blendMoistNote: 'Na mistura, a humidade inicial e as impurezas são a média ponderada pela % de cada silo.', blendM0: 'Humidade inicial da mistura',
     authGiven: 'Mistura fora da receita autorizada por {by}: {r}', remove: 'Retirar', authTitle: 'Silo(s) {s} fora da receita (cor/grau).',
@@ -80,6 +83,9 @@
     jobOnLine: 'Ordem: {p} · {kg} kg · água {w} L/h · desde {h}'
   };
   const en = {
+    actionCol: 'Action taken', maizeMoistureCol: 'Maize moisture', downtimeCode: 'Downtime code', noStopCode: 'no stoppage', cg_P: 'P — Process', cg_A: 'A — Breakdowns', cg_O: 'O — Other',
+    codeName: 'Code description', decisionCol: 'Decision', f_code: 'downtime code (required with downtime)', byTier3: 'Downtime by Tier 3',
+    codesSource: 'Codes: {s}',
     mode_seq: 'Sequence (silo by silo)', mode_blend: 'Blend (%)', silosBlend: 'Tap the blend silos and enter each one\'s % (total 100), moisture and impurities.',
     silo: 'Silo', blendMoistNote: 'In a blend, initial moisture and impurities are the average weighted by each silo\'s %.', blendM0: 'Blend initial moisture',
     authGiven: 'Off-recipe blend authorised by {by}: {r}', remove: 'Remove', authTitle: 'Silo(s) {s} outside the recipe (colour/grade).',

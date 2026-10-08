@@ -11,7 +11,10 @@ window.ProdUI = function (C) {
   const keepScroll = () => { const y = window.scrollY; C.render(); window.scrollTo(0, y); };
   const STATUS_CLS = { running: 'd-warn', done: 'd-accept', cancelled: 'd-record' };
   const JOB_ST = { running: 1, done: 1, cancelled: 1 };
-  const CAT = new Set(P.ISSUE_CATS), ACT = new Set(P.ACT_TYPES);
+  const ACT = new Set(P.ACT_TYPES);
+  // Código de paragem: "A07 MILLS · Breakdown" (texto do ficheiro FMO, sem tradução)
+  const codeLabel = c => { const d = P.findCode(c); return d ? d.code + ' ' + d.name : (c || ''); };
+  const GROUPS = [['P', 'cg_P'], ['A', 'cg_A'], ['O', 'cg_O']];
 
   // ---------- dados ----------
   async function load() {
@@ -331,6 +334,7 @@ window.ProdUI = function (C) {
       <label class="fld">${esc(t('shift'))}<select id="logPeriod"><option value="D" ${ls.period === 'D' ? 'selected' : ''}>${esc(t('shift_D'))} 07–19</option><option value="N" ${ls.period === 'N' ? 'selected' : ''}>${esc(t('shift_N'))} 19–07</option></select></label></div>
       <div class="kpis k4"><div><b>${sm.jobs.length}</b><span>${esc(t('ptab_jobs'))}</span></div><div class="${sm.openIssues ? 'd-warn' : ''}"><b>${sm.issues.length}</b><span>${esc(t('issues'))}</span></div>
         <div><b>${sm.downtimeMin}</b><span>${esc(t('downtimeMin'))}</span></div><div><b>${sm.acts.length}</b><span>${esc(t('activities'))}</span></div></div>
+      ${Object.keys(sm.byTier3).length ? `<p class="sub">${esc(t('byTier3'))}: ${Object.keys(sm.byTier3).map(k => esc(k) + ' ' + sm.byTier3[k] + ' min').join(' · ')}</p>` : ''}
       ${f ? '' : `<div class="row"><button class="btn primary" data-pact="newissue">＋ ${esc(t('newIssue'))}</button><button class="btn" data-pact="newact">＋ ${esc(t('newActivity'))}</button></div>`}
       <div class="row"><button class="btn ghost small" data-pact="shiftxlsx">${esc(t('genExcel'))}</button>
         <a class="btn ghost small" target="_blank" rel="noopener" href="${esc(C.waLink(shiftText(ls, sm)))}">${esc(t('sendSummaryWa'))}</a></div></section>
@@ -346,7 +350,7 @@ window.ProdUI = function (C) {
     const head = `<label class="fld">${esc(t('time'))}<input type="datetime-local" data-lf="time" value="${esc(f.time)}"></label>
       <label class="fld">${esc(t('line'))}<select data-lf="lineId">${lineOpts(f.lineId)}</select></label>`;
     if (f.kind === 'issue') return `<section class="card"><h3>${esc(t('newIssue'))}</h3><div class="grid2">${head}
-        <label class="fld req">${esc(t('category'))}<select data-lf="category"><option value="">—</option>${P.ISSUE_CATS.map(c => `<option value="${c}" ${f.category === c ? 'selected' : ''}>${esc(t('ic_' + c))}</option>`).join('')}</select></label>
+        <label class="fld">${esc(t('downtimeCode'))}<select data-lf="code"><option value="">— ${esc(t('noStopCode'))}</option>${GROUPS.map(([g, k]) => `<optgroup label="${esc(t(k))}">${P.DOWNTIME_CODES.filter(c => c.code[0] === g).map(c => `<option value="${esc(c.code)}" ${f.code === c.code ? 'selected' : ''}>${esc(c.code + ' ' + c.name)}</option>`).join('')}</optgroup>`).join('')}</select></label>
         <label class="fld">${esc(t('equipment'))}<input data-lf="equipment" value="${esc(f.equipment)}"></label></div>
         <label class="fld req">${esc(t('issueDesc'))}<textarea rows="2" data-lf="description">${esc(f.description)}</textarea></label>
         <label class="fld">${esc(t('downtimeMin'))}<input inputmode="numeric" data-lf="downtimeMin" value="${esc(f.downtimeMin)}"></label>
@@ -365,7 +369,7 @@ window.ProdUI = function (C) {
       <button class="btn primary big" data-pact="savelog">${esc(t('save'))}</button><button class="btn ghost" data-pact="cancellog">${esc(t('cancel'))}</button></section>`;
   }
   function newLogForm(kind) {
-    S.logForm = { kind, time: C.localInput(now()), lineId: '', category: '', equipment: '', description: '', downtimeMin: '', action: '',
+    S.logForm = { kind, time: C.localInput(now()), lineId: '', code: '', equipment: '', description: '', downtimeMin: '', action: '',
       type: '', floor: '', qtyKg: '', productId: '', by: S.operator };
   }
   async function saveLog() {
@@ -381,7 +385,7 @@ window.ProdUI = function (C) {
       const e = P.validateIssue(f);
       if (e.length) return C.toast(t('fillFields') + ': ' + e.map(x => t('f_' + x)).join(', '));
       const dt = P.num(f.downtimeMin);
-      rec = Object.assign(base(tms), { kind: 'issue', t: tms, lineId: f.lineId, category: f.category, equipment: f.equipment.trim(),
+      rec = Object.assign(base(tms), { kind: 'issue', t: tms, lineId: f.lineId, code: f.code || null, codeInfo: f.code ? Object.assign({ source: P.DOWNTIME_SOURCE }, P.findCode(f.code)) : null, equipment: f.equipment.trim(),
         description: f.description.trim(), downtimeMin: dt, action: f.action.trim(), by: f.by.trim(), status: f.action.trim() ? 'closed' : 'open' });
       if (rec.status === 'closed') { rec.closedAt = tms; rec.closedBy = rec.by; rec.resolution = rec.action; }
     } else {
@@ -397,11 +401,11 @@ window.ProdUI = function (C) {
     await reload(); C.toast(t('saved')); keepScroll();
   }
   function issueItem(i) {
-    const cat = CAT.has(i.category) ? i.category : 'other';
+    const cd = P.findCode(i.code);
     const open = i.status !== 'closed';
     const act = S.logAct && S.logAct.uid === i.uid ? S.logAct.mode : null;
     return `<div class="rowitem">
-      <div class="row between"><span><b>${esc(C.fmtTime(i.t))}</b> · ${esc(t('ic_' + cat))}${i.lineId ? ' · ' + esc(C.lineName(i.lineId)) : ''}${i.equipment ? ' · ' + esc(i.equipment) : ''}</span>
+      <div class="row between"><span><b>${esc(C.fmtTime(i.t))}</b>${i.code ? ' · <b>' + esc(codeLabel(i.code)) + '</b>' + (cd && cd.tier3 ? ' <small>(' + esc(cd.tier3) + ')</small>' : '') : ' · ' + esc(t('noStopCode'))}${i.lineId ? ' · ' + esc(C.lineName(i.lineId)) : ''}${i.equipment ? ' · ' + esc(i.equipment) : ''}</span>
         <span class="chip ${open ? 'd-warn' : 'd-accept'}">${esc(open ? t('is_open') : t('is_closed'))}</span></div>
       <div>${esc(i.description)}</div>
       <small>${isNum(i.downtimeMin) ? esc(t('downtimeMin')) + ': ' + i.downtimeMin + ' · ' : ''}${esc(t('crew'))} ${esc(i.crew)} · ${esc(i.by)}</small>
@@ -435,8 +439,8 @@ window.ProdUI = function (C) {
   function shiftText(ls, sm) {
     const lines = [t('waShiftTitle', { d: ls.day, s: t('shift_' + ls.period) })];
     sm.jobs.forEach(j => lines.push('▶ ' + C.lineName(j.lineId) + ' ' + C.prodName(j.productId) + ': ' + fmtKg(j.grainKg) + ' kg · ' + t('js_' + (JOB_ST[j.status] ? j.status : 'running'))));
-    lines.push(t('issues') + ': ' + sm.issues.length + ' (' + t('is_open') + ' ' + sm.openIssues + ') · ' + t('downtimeMin') + ': ' + sm.downtimeMin);
-    sm.issues.forEach(i => lines.push('• ' + C.fmtTime(i.t) + ' ' + t('ic_' + (CAT.has(i.category) ? i.category : 'other')) + (i.lineId ? ' ' + i.lineId : '') + ': ' + i.description + (isNum(i.downtimeMin) ? ' (' + i.downtimeMin + ' min)' : '')));
+    lines.push(t('issues') + ': ' + sm.issues.length + ' (' + t('is_open') + ' ' + sm.openIssues + ') · ' + t('downtimeMin') + ': ' + sm.downtimeMin + (Object.keys(sm.byTier3).length ? ' (' + Object.keys(sm.byTier3).map(k => k + ' ' + sm.byTier3[k]).join(', ') + ')' : ''));
+    sm.issues.forEach(i => lines.push('• ' + C.fmtTime(i.t) + ' ' + (i.code ? codeLabel(i.code) : t('noStopCode')) + (i.lineId ? ' ' + i.lineId : '') + ': ' + i.description + (isNum(i.downtimeMin) ? ' (' + i.downtimeMin + ' min)' : '')));
     if (sm.acts.length) lines.push(t('activities') + ': ' + sm.acts.map(a => t('at_' + (ACT.has(a.type) ? a.type : 'other')) + (a.floor ? ' ' + a.floor : '')).join('; '));
     return lines.join('\n');
   }
@@ -451,10 +455,11 @@ window.ProdUI = function (C) {
         isNum(j.extraction) ? j.extraction : '', isNum(j.expectedKg) ? j.expectedKg : '', isNum(j.actualKg) ? j.actualKg : '', j.closeNote || ''])]);
     const rds = [];
     (S.jobs || []).forEach(j => (j.readings || []).forEach(r => { if (r.t >= range[0] && r.t < range[1]) rds.push([C.fmtDT(r.t), r.crew, C.lineName(j.lineId), C.prodName(j.productId), r.m0, j.m1, r.waterLh, r.over ? t('overDampener') : '', r.by, r.kind === 'start' ? t('atStart') : '']); }));
-    add(t('maizeMoisture'), [[t('dateTime'), t('crew'), t('line'), t('product'), t('m0') + ' %', t('m1') + ' %', t('waterRate') + ' (L/h)', '', t('name'), ''], ...rds]);
-    add(t('issues'), [[t('dateTime'), t('crew'), t('line'), t('category'), t('equipment'), t('issueDesc'), t('downtimeMin'), t('actionTaken'), t('status'), t('reportedBy'), t('closedAt'), t('resolution')],
-      ...sm.issues.map(i => [C.fmtDT(i.t), i.crew, i.lineId ? C.lineName(i.lineId) : '', t('ic_' + (CAT.has(i.category) ? i.category : 'other')), i.equipment, i.description,
-        isNum(i.downtimeMin) ? i.downtimeMin : '', i.action, i.status === 'closed' ? t('is_closed') : t('is_open'), i.by, i.closedAt ? C.fmtDT(i.closedAt) : '', i.resolution || ''])]);
+    add(t('maizeMoisture'), [[t('dateTime'), t('crew'), t('line'), t('product'), t('maizeMoistureCol') + ' %', t('m1') + ' %', t('waterRate') + ' (L/h)', '', t('name'), ''], ...rds]);
+    add(t('issues'), [[t('dateTime'), t('crew'), t('line'), t('downtimeCode'), t('codeName'), 'V1', 'V2', 'Tier 3', t('decisionCol'), t('equipment'), t('issueDesc'), t('downtimeMin'), t('actionCol'), t('status'), t('reportedBy'), t('closedAt'), t('resolution')],
+      ...sm.issues.map(i => { const d = P.findCode(i.code) || {}; return [C.fmtDT(i.t), i.crew, i.lineId ? C.lineName(i.lineId) : '', i.code || '', d.name || '', d.v1 || '', d.v2 || '', d.tier3 || '', d.decision || '', i.equipment, i.description,
+        isNum(i.downtimeMin) ? i.downtimeMin : '', i.action, i.status === 'closed' ? t('is_closed') : t('is_open'), i.by, i.closedAt ? C.fmtDT(i.closedAt) : '', i.resolution || '']; })]);
+    add(t('byTier3'), [['Tier 3', t('downtimeMin')], ...Object.keys(sm.byTier3).map(k => [k, sm.byTier3[k]]), [], [t('codesSource', { s: P.DOWNTIME_SOURCE })]]);
     add(t('activities'), [[t('dateTime'), t('crew'), t('line'), t('activityType'), t('floor'), t('qtyKg'), t('product'), t('description'), t('doneBy')],
       ...sm.acts.map(a => [C.fmtDT(a.t), a.crew, a.lineId ? C.lineName(a.lineId) : '', t('at_' + (ACT.has(a.type) ? a.type : 'other')), a.floor || '', isNum(a.qtyKg) ? a.qtyKg : '',
         a.productId ? C.prodName(a.productId) : '', a.description || '', a.by])]);

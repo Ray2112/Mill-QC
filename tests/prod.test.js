@@ -307,14 +307,16 @@ t('configuração: validação e diferenças', () => {
 });
 
 t('diário: validação, anulação e resumo do turno', () => {
-  assert.deepStrictEqual(P.validateIssue({ category: 'breakdown', description: 'x', downtimeMin: '30' }), []);
-  assert.deepStrictEqual(P.validateIssue({ category: 'zz', description: ' ', downtimeMin: '-1' }), ['category', 'description', 'downtimeMin']);
+  assert.deepStrictEqual(P.validateIssue({ code: 'A22', description: 'x', downtimeMin: '30' }), []);
+  assert.deepStrictEqual(P.validateIssue({ code: '', description: 'x', downtimeMin: '30' }), ['code']);        // paragem sem código
+  assert.deepStrictEqual(P.validateIssue({ code: '', description: 'x', downtimeMin: '' }), []);          // sem paragem: código opcional
+  assert.deepStrictEqual(P.validateIssue({ code: 'Z99', description: ' ', downtimeMin: '-1' }), ['downtimeMin', 'code', 'description']);
   assert.deepStrictEqual(P.validateActivity({ type: 'housekeeping', floor: '' }), ['floor']);
   assert.deepStrictEqual(P.validateActivity({ type: 'reprocessing', qtyKg: '1.200' }), []);
   assert.deepStrictEqual(P.validateActivity({ type: 'other', description: '' }), ['description']);
   const log = [
-    { uid: 'i1', kind: 'issue', prodDay: '2026-10-08', period: 'D', t: 2, downtimeMin: 30, status: 'open' },
-    { uid: 'i2', kind: 'issue', prodDay: '2026-10-08', period: 'D', t: 3, downtimeMin: 15, status: 'closed' },
+    { uid: 'i1', kind: 'issue', prodDay: '2026-10-08', period: 'D', t: 2, downtimeMin: 30, code: 'A22', status: 'open' },
+    { uid: 'i2', kind: 'issue', prodDay: '2026-10-08', period: 'D', t: 3, downtimeMin: 15, code: 'P13', status: 'closed' },
     { uid: 'i3', kind: 'issue', prodDay: '2026-10-08', period: 'D', t: 4, downtimeMin: 99, status: 'open' },
     { uid: 'v1', kind: 'void', voids: 'i3', t: 5 },
     { uid: 'a1', kind: 'activity', prodDay: '2026-10-08', period: 'D', t: 1, type: 'housekeeping', floor: '3' },
@@ -329,7 +331,18 @@ t('diário: validação, anulação e resumo do turno', () => {
   const s = P.shiftSummary('2026-10-08', 'D', [60, 500], { log, jobs, now: 2000 });
   assert.strictEqual(s.issues.length, 2); assert.strictEqual(s.acts.length, 1);
   assert.strictEqual(s.downtimeMin, 45); assert.strictEqual(s.openIssues, 1);
+  assert.deepStrictEqual(s.byTier3, { Breakdown: 30, Process: 15 });
   assert.deepStrictEqual(s.jobs.map(j => j.uid), ['j1']);
+});
+
+t('códigos de paragem FMO (Downtime_Codes.xlsx)', () => {
+  assert.strictEqual(P.DOWNTIME_CODES.length, 60);
+  assert.strictEqual(new Set(P.DOWNTIME_CODES.map(c => c.code)).size, 60);
+  assert.ok(P.DOWNTIME_CODES.every(c => /^[PAO]\d{2}$/.test(c.code) && c.code === c.code.trim()));
+  assert.ok(P.DOWNTIME_CODES.every(c => P.TIER3.indexOf(c.tier3) >= 0));
+  assert.deepStrictEqual(P.findCode('A02'), { code: 'A02', name: 'ASPIRATION FAN', v1: 'Unplanned - Mechanical Breakdown', v2: 'Breakdown', decision: null, tier3: 'Breakdown' });
+  assert.strictEqual(P.findCode('P24').v2, null);               // célula só com traços no ficheiro
+  assert.strictEqual(P.findCode('O04').tier3, 'Power Failure');
 });
 
 t('identificador e validação da cópia', () => {
