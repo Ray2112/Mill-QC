@@ -2,6 +2,7 @@
 (function () {
   'use strict';
   const L = window.Logic, DB = window.DB, I = window.I18N;
+  let PU = null;   // módulo de Produção (js/prod-ui.js)
   const $ = s => document.querySelector(s);
   const S = {
     view: 'home', lang: 'pt', cfg: null, crew: null, operator: '', lineState: {},
@@ -88,6 +89,7 @@
     S.pinLock = (await DB.getConfig('pinLock')) || { fails: 0, until: 0 };
     S.pinSet = !!(await DB.getConfig('pin'));
     await reloadData();
+    await PU.load();
   }
   async function reloadData() {
     S.samples = await DB.all('samples');
@@ -187,7 +189,7 @@
       </header>
       <main id="main">${view()}</main>
       <nav class="bottom">
-        ${navBtn('home', '⌂')}${navBtn('sample', '＋')}${navBtn('holds', '⛔', openN)}${navBtn('records', '☰')}${navBtn('report', '▤')}${navBtn('settings', '⚙')}
+        ${navBtn('home', '⌂')}${navBtn('sample', '＋')}${navBtn('holds', '⛔', openN)}${navBtn('prod', '▶', (S.jobs || []).filter(j => j.status === 'running').length)}${navBtn('records', '☰')}${navBtn('report', '▤')}${navBtn('settings', '⚙')}
       </nav>
       ${S.modal ? modal() : ''}`;
   }
@@ -202,6 +204,8 @@
       case 'report': return viewReport();
       case 'settings': return viewSettings();
       case 'limits': return viewLimits();
+      case 'prod': return PU.view();
+      case 'prodset': return PU.viewProdSet();
       default: return viewHome();
     }
   }
@@ -242,6 +246,7 @@
     return `<section class="card line">
       <div class="row between"><h2>${esc(l.name)}</h2><span class="status ${statusCls}">${esc(t('st_' + status))}</span></div>
       ${hold ? `<div class="banner b-reject" data-nav="holds">${esc(t('holdSince', { h: fmtDT(hold.openedAt) }))} — ${esc(t('hs_' + hold.status))}</div>` : ''}
+      ${PU.homeLine(l.id)}
       <label class="fld">${esc(t('runningProduct'))}
         <select data-lineprod="${esc(l.id)}">
           <option value="">—</option>
@@ -514,6 +519,7 @@
         <button class="btn primary" id="savePin">${esc(t('savePin'))}</button></section>
       <section class="card"><h3>${esc(t('qualityLimits'))}</h3><p class="sub">${esc(t('limitsNote'))}</p>
         <button class="btn" id="openLimits">${esc(t('editLimits'))}</button></section>
+      ${PU.settingsCard()}
       <section class="card"><h3>${esc(t('lines'))}</h3>
         ${S.cfg.lines.map(l => `<label class="fld">${esc(l.id)}<input data-linename="${esc(l.id)}" value="${esc(l.name)}"></label>`).join('')}
         <label class="fld">${esc(t('graceMin'))}<input inputmode="numeric" id="graceMin" value="${esc(S.cfg.graceMin)}"></label>
@@ -603,9 +609,11 @@
 
   // ---------- eventos ----------
   document.addEventListener('click', async e => {
+    const pel = e.target.closest(PU.CLICK_SEL);
+    if (pel) return PU.onClick(pel);
     const el = e.target.closest('[data-nav],[data-newsample],[data-run],[data-phys],[data-haction],[data-detail],[data-correct],[data-repday],#saveSample,#physAllOk,#closeModal,#genXlsx,#savePin,#openLimits,#saveLimits,#saveLines,#askNotif,#testAlert,#exportBk');
     if (!el) return;
-    if (el.dataset.nav) { S.view = el.dataset.nav; S.modal = null; if (S.view === 'sample' && !S.form) newForm(); render(); window.scrollTo(0, 0); return; }
+    if (el.dataset.nav) { S.view = el.dataset.nav; S.modal = null; if (S.view === 'prodset') S.prodDraft = null; if (S.view === 'sample' && !S.form) newForm(); render(); window.scrollTo(0, 0); return; }
     if (el.dataset.repday) { S.repDay = el.dataset.repday; S.view = 'report'; render(); return; }
     if (el.dataset.newsample) { newForm(el.dataset.newsample); S.view = 'sample'; render(); window.scrollTo(0, 0); return; }
     if (el.dataset.run) return toggleRun(el.dataset.run);
@@ -629,6 +637,7 @@
   });
   document.addEventListener('input', e => {
     const el = e.target;
+    if (PU.onInput(el)) return;
     if (el.dataset.val && S.form) { S.form.values[el.dataset.val] = el.value; updateLive(); return; }
     if (!S.form) return;
     if (el.id === 'f_op') S.form.operator = el.value;
@@ -638,6 +647,7 @@
   });
   document.addEventListener('change', async e => {
     const el = e.target;
+    if (PU.onChange(el)) return;
     if (el.id === 'crewSel') { S.crew = el.value || null; await DB.setConfig('crew', S.crew); render(); return; }
     if (el.dataset.lineprod) return changeLineProduct(el.dataset.lineprod, el.value, el);
     if (el.id === 'f_line') { S.form.lineId = el.value; const st = S.lineState[el.value]; if (st && st.productId) S.form.productId = st.productId; render(); return; }
@@ -696,7 +706,7 @@
     if (!file) return;
     let o;
     try { o = JSON.parse(await file.text()); } catch (e) { return toast(t('invalidBackup')); }
-    if (!L.validBackup(o)) return toast(t('invalidBackup'));
+    if (!L.validBackup(o) || !window.Prod.validProdBackup(o)) return toast(t('invalidBackup'));
     if (!confirm(t('confirmImport'))) return;
     await exportBackup();                 // cópia de segurança antes de restaurar
     try { await DB.importAll(o); } catch (e) { return toast(t('invalidBackup')); }
@@ -705,6 +715,8 @@
 
   // ---------- arranque ----------
   async function start() {
+    PU = window.ProdUI({ S, t, esc, DB, L, render, toast, checkPin, pinMsg, fmtDT, fmtTime, fmtNum, localInput, products, product, prodName,
+      lineName, lineStatus, anyLabel, decLabel, decCls, waLink });
     await load(); render();
     setInterval(() => { const c = $('#clock'); if (c) c.textContent = fmtTime(Date.now()); }, 15000);
     setInterval(checkOverdue, 60000);

@@ -1,10 +1,14 @@
-/* IndexedDB — base de dados própria da app de CQ (separada da app de Silos). */
+/* IndexedDB — base de dados própria da app de CQ (separada da app de Silos).
+ * v2 (app 1.1.0): lojas de produção com chave 'uid' (texto, único por dispositivo) para sincronização futura. */
 (function (root) {
   'use strict';
   const DB_NAME = 'moagem-cq';
-  const DB_VERSION = 1;
-  const FORMAT = 1;
+  const DB_VERSION = 2;
+  const FORMAT = 2;
   const STORES = ['samples', 'holds', 'alerts', 'limitChanges', 'reports'];
+  const PSTORES = ['jobs', 'binEvents', 'shiftLog', 'siloSnapshots', 'prodChanges'];   // chave: uid
+  const ALL = STORES.concat(PSTORES);
+  const LOCAL_KEYS = ['pin', 'pinLock', 'deviceId'];               // ficam só neste dispositivo
   let dbp = null;
 
   function open() {
@@ -20,6 +24,7 @@
           }
         });
         if (!db.objectStoreNames.contains('config')) db.createObjectStore('config', { keyPath: 'key' });
+        PSTORES.forEach(s => { if (!db.objectStoreNames.contains(s)) db.createObjectStore(s, { keyPath: 'uid' }); });
       };
       r.onsuccess = () => res(r.result);
       r.onerror = () => rej(r.error);
@@ -66,26 +71,34 @@
       return id;
     });
   }
+  // Vários registos em várias lojas, tudo-ou-nada. ops: [{store, op:'add'|'put', obj}]
+  function batch(ops) {
+    const stores = [...new Set(ops.map(o => o.store))];
+    return tx(stores, 'readwrite', async t => {
+      for (const o of ops) await req(t.objectStore(o.store)[o.op === 'put' ? 'put' : 'add'](o.obj));
+    });
+  }
   async function exportAll() {
     const o = { app: 'mill-qc', format: FORMAT, exportedAt: new Date().toISOString() };
-    for (const s of STORES) o[s] = await all(s);
-    o.config = (await tx(['config'], 'readonly', t => req(t.objectStore('config').getAll()))).filter(c => c.key !== 'pin' && c.key !== 'pinLock');
+    for (const s of ALL) o[s] = await all(s);
+    o.config = (await tx(['config'], 'readonly', t => req(t.objectStore('config').getAll()))).filter(c => LOCAL_KEYS.indexOf(c.key) < 0);
     return o;
   }
   async function importAll(o) {
-    if (!root.Logic.validBackup(o)) throw new Error('invalid-backup');
-    const stores = STORES.concat(['config']);
+    if (!root.Logic.validBackup(o) || !root.Prod.validProdBackup(o)) throw new Error('invalid-backup');
+    const stores = ALL.concat(['config']);
     return tx(stores, 'readwrite', async t => {
-      const keepPin = await req(t.objectStore('config').get('pin'));
+      const keep = [];
+      for (const k of LOCAL_KEYS) { const v = await req(t.objectStore('config').get(k)); if (v) keep.push(v); }
       for (const s of stores) {
         await req(t.objectStore(s).clear());
-        if (s === 'config' && keepPin) await req(t.objectStore('config').put(keepPin));
+        if (s === 'config') for (const v of keep) await req(t.objectStore('config').put(v));
         for (const r of (o[s] || [])) {
-          if (s === 'config' && (r.key === 'pin' || r.key === 'pinLock')) continue;    // o PIN nunca é importado
+          if (s === 'config' && LOCAL_KEYS.indexOf(r.key) >= 0) continue;    // PIN e identidade do dispositivo nunca são importados
           await req(t.objectStore(s).put(r));
         }
       }
     });
   }
-  root.DB = { open, add, put, all, getConfig, setConfig, saveSampleBundle, exportAll, importAll, DB_NAME, DB_VERSION, FORMAT };
+  root.DB = { open, add, put, all, batch, getConfig, setConfig, saveSampleBundle, exportAll, importAll, DB_NAME, DB_VERSION, FORMAT };
 })(window);

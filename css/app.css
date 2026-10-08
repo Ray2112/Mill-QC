@@ -63,3 +63,13 @@ nav.bottom{position:fixed;bottom:0;left:0;right:0;display:flex;background:#fff;b
 .d-reject-border{border:4px solid var(--rej)}.d-warn-border{border:4px solid var(--warn)}
 .toast{position:fixed;left:50%;bottom:84px;transform:translateX(-50%);background:#111;color:#fff;padding:10px 16px;border-radius:10px;opacity:0;transition:opacity .2s;z-index:30;max-width:90vw;font-size:14px;pointer-events:none}
 .toast.show{opacity:.95}
+/* Produção (v1.1.0) */
+.kv{display:flex;justify-content:space-between;gap:10px;font-size:14px;padding:3px 0;border-bottom:1px dotted var(--line)}.kv span{color:var(--sub)}.kv b{text-align:right}
+.picks{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;margin:6px 0}
+.pick{position:relative;text-align:left;border:1px solid #c9d2c8;border-radius:10px;background:#fff;padding:8px;font-size:14px;color:var(--ink);display:flex;flex-direction:column;gap:2px}
+.pick small{color:var(--sub);font-size:12px}.pick .chip{align-self:flex-start}
+.pick.on{border:2px solid var(--brand);background:#ecfdf3}
+.ord{position:absolute;top:6px;right:8px;background:var(--brand);color:#fff;font-style:normal;border-radius:999px;font-size:12px;padding:0 7px}
+.chk{display:flex;gap:8px;align-items:flex-start;font-size:14px;margin:8px 0}.chk input{width:20px;height:20px;flex:none}
+.kpis.k4{grid-template-columns:repeat(4,1fr)}.dec .li{text-align:left;font-size:14px;margin-top:3px}
+.job{border-color:var(--line)}

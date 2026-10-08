@@ -1,0 +1,358 @@
+/* Moagem — Produção (ordens de produção, silos de produto, diário de turno).
+ * Regras de negócio puras (sem DOM). Browser: window.Prod · Node: module.exports.
+ * Dados fornecidos por Zhax (08-10-2026): linhas C 500 t/dia e D 300 t/dia; molhador máx. 2 500 L/h;
+ * água calculada sobre o grão sujo; silos de produto e linhas que os alimentam: foto do ecrã "Flour Silos".
+ * Extracção alvo e receitas (cor/grau por produto) NÃO têm valores por defeito: definem-se com PIN.
+ */
+(function (root) {
+  'use strict';
+
+  const VERSION = '1.1.0';
+  const COLOURS = ['Amarelo', 'Branco'];
+  const SILO_GRADES = ['G1', 'G2', 'OFF', 'PRI'];          // designações da app de Silos (REJ nunca vai a moagem)
+  const ISSUE_CATS = ['breakdown', 'process', 'quality', 'safety', 'utilities', 'other'];
+  const ACT_TYPES = ['housekeeping', 'reprocessing', 'cleaning', 'maintenance', 'other'];
+  const JOB_STATUS = ['running', 'done', 'cancelled'];
+
+  // Silos de produto (bins) com linha(s) de milho que os podem alimentar.
+  // Fonte: foto do ecrã SCADA "Flour Silos" (08-10-2026). A e B (trigo) ignorados a pedido.
+  const BIN_SOURCE = 'Ecrã "Flour Silos" (foto 08-10-2026)';
+  const DEFAULT_BINS = [
+    ['23', 'C'], ['24', 'CD'], ['34', 'CD'], ['35', 'CD'], ['37', 'C'], ['38', 'C'], ['39', 'D'],
+    ['40', 'C'], ['43', 'D'], ['44', 'C'], ['45', 'C'], ['46', 'C'], ['47', 'C'],
+    ['GRITS1', 'C'], ['GRITS2', 'C']
+  ].map(([id, l]) => ({ id, lines: l.split('') }));
+
+  function defaultProdConfig() {
+    return {
+      lineTpd: { C: 500, D: 300 },     // capacidade (t/dia) — dado do utilizador
+      dampenerMaxLh: 2500,             // molhador, máximo L/h — dado do utilizador
+      extraction: {},                  // { productId: % } — vazio até definido com PIN
+      recipes: {},                     // { productId: { colours:[], grades:[] } } — vazio até definido
+      bins: DEFAULT_BINS.map(b => ({ id: b.id, lines: b.lines.slice() })),
+      binSource: BIN_SOURCE,
+      floors: []                       // pisos para limpeza — lista definida pela empresa
+    };
+  }
+
+  // ---------- números ----------
+  // Igual a Logic.num, mais modo 'kg' (uso angolano: "30.000" = 30 000; "1.250,5" = 1250,5)
+  function num(v, mode) {
+    if (v === null || v === undefined) return null;
+    if (typeof v === 'number') return isFinite(v) ? v : NaN;
+    let s = String(v).trim().replace(/[\s ']/g, '');
+    if (s === '') return null;
+    if (!/^-?[0-9.,]+$/.test(s)) return NaN;
+    const dot = s.lastIndexOf('.'), com = s.lastIndexOf(',');
+    if (dot >= 0 && com >= 0) {
+      const dec = dot > com ? '.' : ',', th = dec === '.' ? ',' : '.';
+      const ip = s.slice(0, s.lastIndexOf(dec)), fp = s.slice(s.lastIndexOf(dec) + 1);
+      const g = ip.replace('-', '').split(th);
+      if (fp.indexOf(th) >= 0 || !(g[0].length >= 1 && g[0].length <= 3 && g.slice(1).every(p => p.length === 3))) return NaN;
+      s = ip.split(th).join('') + '.' + fp;
+    } else if (com >= 0) {
+      const parts = s.split(',');
+      if (parts.length > 2) return NaN;
+      s = parts.join('.');
+    } else if (dot >= 0) {
+      const parts = s.replace('-', '').split('.');
+      if (mode === 'kg' && parts.length >= 2 && parts[0].length >= 1 && parts[0].length <= 3 && parts.slice(1).every(p => p.length === 3)) s = s.split('.').join('');
+      else if (parts.length > 2) return NaN;
+    }
+    const n = parseFloat(s);
+    return isFinite(n) ? n : NaN;
+  }
+  const r1 = n => Math.round(n * 10) / 10;
+  const r0 = n => Math.round(n);
+  const isNum = x => typeof x === 'number' && isFinite(x);
+
+  // ---------- água de temperagem ----------
+  // Balanço de massa sobre o grão sujo (como recebido do silo):
+  //   água (kg ≈ L) = massa × (H alvo − H inicial) / (100 − H alvo)
+  function waterFor(kg, m0, m1) {
+    if (!isNum(kg) || !isNum(m0) || !isNum(m1)) return null;
+    if (m1 <= m0) return 0;
+    return kg * (m1 - m0) / (100 - m1);
+  }
+  // Caudal de água (L/h) para um caudal de grão (t/h)
+  function waterRate(tph, m0, m1) {
+    const w = waterFor(isNum(tph) ? tph * 1000 : NaN, m0, m1);
+    return w === null ? null : w;
+  }
+  const defaultFeedTph = (cfgP, lineId) => {
+    const tpd = cfgP.lineTpd && cfgP.lineTpd[lineId];
+    return isNum(tpd) && tpd > 0 ? tpd / 24 : null;
+  };
+
+  // ---------- silos de grão (snapshot importado da app de Silos) ----------
+  function siloKg(siloId, events) {
+    const stamp = e => (e.date || '') + 'T' + (e.time || '00:00') + '#' + String(e.seq || 0).padStart(8, '0');
+    const evs = (events || []).filter(e => e.silo === siloId || (e.type === 'TRANSFER' && e.toSilo === siloId))
+      .sort((a, b) => stamp(a) < stamp(b) ? -1 : stamp(a) > stamp(b) ? 1 : 0);
+    let kg = 0;
+    evs.forEach(e => {
+      const k = num(e.kg, 'kg');
+      const v = isNum(k) ? k : 0;
+      if (e.type === 'EMPTY' && e.silo === siloId) { kg = 0; return; }
+      if (e.type === 'IN' || (e.type === 'TRANSFER' && e.toSilo === siloId && e.silo !== siloId)) kg += v;
+      else if (e.type === 'OUT' || (e.type === 'TRANSFER' && e.silo === siloId && e.toSilo !== siloId)) kg -= v;
+    });
+    return Math.round(kg * 1000) / 1000;
+  }
+  // Lê a cópia de segurança da app de Silos (app 'moagem-app'). Devolve snapshot ou lança erro.
+  function snapshotFromSilosBackup(o, importedAt) {
+    if (!o || o.app !== 'moagem-app' || !Array.isArray(o.settings) || !Array.isArray(o.events)) throw new Error('not-silos-backup');
+    const main = o.settings.find(s => s && s.key === 'main');
+    const silos = main && main.value && Array.isArray(main.value.silos) ? main.value.silos : null;
+    if (!silos) throw new Error('no-silos');
+    const sev = Array.isArray(o.sevents) ? o.sevents : [];
+    return {
+      source: 'moagem-app', exportedAt: typeof o.exportedAt === 'string' ? o.exportedAt : null, importedAt,
+      silos: silos.filter(s => s && typeof s.id === 'string').map(s => {
+        const open = sev.filter(e => e && e.silo === s.id && e.status === 'OPEN');
+        const lvl = open.reduce((m, e) => Math.max(m, isNum(e.level) ? e.level : 0), -1);
+        return { id: s.id, cereal: s.cereal || '', colour: s.colour || '', grade: s.grade || '',
+          cap: num(s.cap, 'kg'), kg: siloKg(s.id, o.events), openEvent: open.length > 0, openLevel: lvl >= 0 ? lvl : null };
+      })
+    };
+  }
+  // Grão já comprometido por ordens criadas depois da exportação do snapshot (para não contar duas vezes)
+  function committedAfter(snapshot, jobs) {
+    const out = {};
+    const t0 = snapshot && snapshot.exportedAt ? Date.parse(snapshot.exportedAt) : (snapshot ? snapshot.importedAt : 0);
+    (jobs || []).forEach(j => {
+      if (j.status === 'cancelled' || !(j.startedAt > t0) || !Array.isArray(j.alloc)) return;
+      const f = j.status === 'done' && isNum(j.actualKg) && isNum(j.grainKg) && j.grainKg > 0 ? j.actualKg / j.grainKg : 1;
+      j.alloc.forEach(a => { out[a.silo] = (out[a.silo] || 0) + a.kg * f; });
+    });
+    return out;
+  }
+  function availableKg(snapshot, jobs, siloId) {
+    const s = snapshot && snapshot.silos.find(x => x.id === siloId);
+    if (!s) return null;
+    return Math.max(0, Math.round((s.kg - (committedAfter(snapshot, jobs)[siloId] || 0)) * 1000) / 1000);
+  }
+  // Repartir: esvazia o 1.º silo, depois o seguinte
+  function allocate(kg, slots) {
+    let rest = kg; const parts = [];
+    slots.forEach(s => {
+      if (rest <= 0) return;
+      const take = Math.round(Math.min(rest, Math.max(0, s.avail || 0)) * 1000) / 1000;
+      if (take > 0) { parts.push({ silo: s.id, kg: take }); rest = Math.round((rest - take) * 1000) / 1000; }
+    });
+    return { parts, short: Math.max(0, Math.round(rest * 1000) / 1000) };
+  }
+
+  // ---------- compatibilidade matéria-prima × produto (receita) ----------
+  function recipeSet(r) { return !!r && Array.isArray(r.colours) && r.colours.length > 0 && Array.isArray(r.grades) && r.grades.length > 0; }
+  // silo: {cereal, colour, grade}; millType 'maize' → cereal 'Milho'
+  function recipeFit(recipe, silo, millType) {
+    if (!recipeSet(recipe)) return { ok: false, why: 'recipe_not_set' };
+    if (!silo || !silo.cereal) return { ok: false, why: 'silo_not_designated' };
+    const cereal = { maize: 'Milho', wheat: 'Trigo', rice: 'Arroz' }[millType];
+    if (silo.cereal !== cereal) return { ok: false, why: 'other_cereal' };
+    if (cereal === 'Milho' && recipe.colours.indexOf(silo.colour) < 0) return { ok: false, why: 'colour' };
+    if (recipe.grades.indexOf(silo.grade) < 0) return { ok: false, why: 'grade' };
+    return { ok: true };
+  }
+
+  // ---------- silos de produto (bins) ----------
+  // binEvents: {binId, type:'FILL'|'EMPTY'|'SET', productId, t, jobUid}
+  function binState(binId, binEvents) {
+    const evs = (binEvents || []).filter(e => e.binId === binId && !e.voidedBy).sort((a, b) => a.t - b.t || (a.seq || 0) - (b.seq || 0));
+    const last = evs[evs.length - 1];
+    if (!last || last.type === 'EMPTY') return { productId: null, since: last ? last.t : null, last: last || null };
+    return { productId: last.productId || null, since: last.t, jobUid: last.jobUid || null, last };
+  }
+  function binCheck(bin, productId, lineId, binEvents) {
+    if (!bin) return { ok: false, why: 'bin_unknown' };
+    if (bin.lines.indexOf(lineId) < 0) return { ok: false, why: 'bin_line' };
+    const st = binState(bin.id, binEvents);
+    if (st.productId && st.productId !== productId) return { ok: false, why: 'bin_other_product', current: st.productId };
+    return { ok: true, current: st.productId };
+  }
+
+  // ---------- validação da ordem de produção ----------
+  // job: {productId, lineId, grainKg, silos:[ids em ordem], bins:[ids], m0, impurities, m1, feedTph, silosConfirmed}
+  // ctx: {cfgP, millType, snapshot, jobs, binEvents, now, shiftStart}
+  // Devolve {errors:[{code,...}], warnings:[...], calc:{...}}. errors ⇒ a ordem é bloqueada.
+  function validateJob(job, ctx) {
+    const E = [], W = [], calc = {};
+    const cfgP = ctx.cfgP;
+    if (!job.productId) E.push({ code: 'no_product' });
+    if (!job.lineId) E.push({ code: 'no_line' });
+    const kg = num(job.grainKg, 'kg');
+    if (kg === null) E.push({ code: 'no_grain' });
+    else if (isNaN(kg) || kg <= 0) E.push({ code: 'bad', field: 'grainKg' });
+    const m0 = num(job.m0), m1 = num(job.m1), imp = num(job.impurities);
+    if (m0 === null) E.push({ code: 'need', field: 'm0' }); else if (isNaN(m0) || m0 < 0 || m0 >= 100) E.push({ code: 'bad', field: 'm0' });
+    if (m1 === null) E.push({ code: 'need', field: 'm1' }); else if (isNaN(m1) || m1 <= 0 || m1 >= 100) E.push({ code: 'bad', field: 'm1' });
+    if (imp === null) E.push({ code: 'need', field: 'impurities' }); else if (isNaN(imp) || imp < 0 || imp > 100) E.push({ code: 'bad', field: 'impurities' });
+    let tph = num(job.feedTph);
+    if (tph === null) tph = job.lineId ? defaultFeedTph(cfgP, job.lineId) : null;
+    if (tph === null || isNaN(tph) || tph <= 0) E.push({ code: 'bad', field: 'feedTph' });
+
+    // linha ocupada
+    if (job.lineId && (ctx.jobs || []).some(j => j.status === 'running' && j.lineId === job.lineId && j.uid !== job.uid))
+      E.push({ code: 'line_busy' });
+
+    // silos de grão
+    const silos = (job.silos || []).filter(Boolean);
+    const snap = ctx.snapshot;
+    const recipe = cfgP.recipes && cfgP.recipes[job.productId];
+    if (job.productId && !recipeSet(recipe)) E.push({ code: 'recipe_not_set' });
+    if (!snap) E.push({ code: 'no_snapshot' });
+    if (!silos.length) E.push({ code: 'no_silo' });
+    if (snap && silos.length) {
+      if (new Set(silos).size !== silos.length) E.push({ code: 'silo_dup' });
+      const slots = [];
+      silos.forEach(id => {
+        const s = snap.silos.find(x => x.id === id);
+        if (!s) { E.push({ code: 'silo_unknown', silo: id }); return; }
+        if (recipeSet(recipe)) {
+          const f = recipeFit(recipe, s, ctx.millType);
+          if (!f.ok) E.push({ code: 'silo_incompatible', silo: id, why: f.why, colour: s.colour, grade: s.grade });
+        }
+        if (s.openEvent && isNum(s.openLevel) && s.openLevel >= 4) E.push({ code: 'silo_red', silo: id });
+        else if (s.openEvent) W.push({ code: 'silo_event', silo: id });
+        slots.push({ id, avail: availableKg(snap, ctx.jobs, id) || 0 });
+      });
+      if (isNum(kg) && kg > 0) {
+        const a = allocate(kg, slots);
+        calc.alloc = a.parts;
+        if (a.short > 0) E.push({ code: 'silo_short', short: a.short });
+        // um silo seleccionado que não chega a ser usado
+        silos.forEach(id => { if (!a.parts.some(p => p.silo === id) && a.short === 0) W.push({ code: 'silo_unused', silo: id }); });
+      }
+      const exp = snap.exportedAt ? Date.parse(snap.exportedAt) : snap.importedAt;
+      calc.snapshotAt = exp;
+      if (isNum(ctx.shiftStart) && exp < ctx.shiftStart) W.push({ code: 'snapshot_old' });
+    }
+    if (!job.silosConfirmed) E.push({ code: 'confirm_silos' });
+
+    // silos de produto
+    const bins = (job.bins || []).filter(Boolean);
+    if (!bins.length) E.push({ code: 'no_bin' });
+    bins.forEach(id => {
+      const b = cfgP.bins.find(x => x.id === id);
+      const r = binCheck(b, job.productId, job.lineId, ctx.binEvents);
+      if (!r.ok) E.push({ code: r.why, bin: id, current: r.current });
+    });
+
+    // água
+    if (isNum(kg) && kg > 0 && isNum(m0) && isNum(m1) && m0 >= 0 && m1 > 0 && m1 < 100) {
+      calc.waterL = r0(waterFor(kg, m0, m1));
+      if (m1 <= m0) W.push({ code: 'no_water' });
+      if (isNum(tph) && tph > 0) {
+        calc.feedTph = Math.round(tph * 100) / 100;
+        calc.waterLh = r0(waterRate(tph, m0, m1));
+        calc.hours = r1(kg / 1000 / tph);
+        if (isNum(cfgP.dampenerMaxLh) && calc.waterLh > cfgP.dampenerMaxLh) E.push({ code: 'dampener_max', need: calc.waterLh, max: cfgP.dampenerMaxLh });
+      }
+    }
+    // produto esperado
+    const ext = cfgP.extraction && cfgP.extraction[job.productId];
+    if (isNum(kg) && kg > 0 && isNum(ext)) calc.expectedKg = r0(kg * ext / 100);
+    else if (job.productId) W.push({ code: 'no_extraction' });
+    calc.extraction = isNum(ext) ? ext : null;
+    return { errors: E, warnings: W, calc, values: { grainKg: kg, m0, m1, impurities: imp, feedTph: tph } };
+  }
+
+  // ---------- configuração de produção: validação ----------
+  // Texto de silos de produto: "23:C; 24:C,D" ou linhas "23 C D"
+  function parseBins(text, lineIds) {
+    const out = [], errors = [];
+    String(text || '').split(/[;\n]+/).map(s => s.trim()).filter(Boolean).forEach(part => {
+      const m = part.match(/^([A-Za-z0-9-]{1,12})\s*[:\s]\s*([A-Za-z,\s]+)$/);
+      if (!m) { errors.push(part); return; }
+      const lines = [...new Set(m[2].toUpperCase().split(/[,\s]+/).filter(Boolean).join('').split(''))];
+      if (!lines.length || lines.some(l => lineIds.indexOf(l) < 0)) { errors.push(part); return; }
+      if (out.some(b => b.id === m[1].toUpperCase())) { errors.push(part); return; }
+      out.push({ id: m[1].toUpperCase(), lines: lines.sort() });
+    });
+    return { bins: out, errors };
+  }
+  const binsText = bins => bins.map(b => b.id + ':' + b.lines.join(',')).join('; ');
+
+  function validateProdConfig(c) {
+    const e = [];
+    Object.keys(c.lineTpd || {}).forEach(k => { const v = c.lineTpd[k]; if (!isNum(v) || v <= 0) e.push('lineTpd:' + k); });
+    if (!isNum(c.dampenerMaxLh) || c.dampenerMaxLh <= 0) e.push('dampenerMaxLh');
+    Object.keys(c.extraction || {}).forEach(k => { const v = c.extraction[k]; if (v !== null && (!isNum(v) || v <= 0 || v > 100)) e.push('extraction:' + k); });
+    Object.keys(c.recipes || {}).forEach(k => {
+      const r = c.recipes[k];
+      if (r.colours.some(x => COLOURS.indexOf(x) < 0) || r.grades.some(x => SILO_GRADES.indexOf(x) < 0)) e.push('recipe:' + k);
+    });
+    if (!Array.isArray(c.bins) || !c.bins.length) e.push('bins');
+    return e;
+  }
+  // Lista de alterações (auditoria)
+  function prodConfigDiff(a, b) {
+    const d = [];
+    const cmp = (field, x, y) => { const sx = JSON.stringify(x === undefined ? null : x), sy = JSON.stringify(y === undefined ? null : y); if (sx !== sy) d.push({ field, old: sx, new: sy }); };
+    const keys = (o1, o2) => [...new Set(Object.keys(o1 || {}).concat(Object.keys(o2 || {})))];
+    keys(a.lineTpd, b.lineTpd).forEach(k => cmp('lineTpd.' + k, (a.lineTpd || {})[k], (b.lineTpd || {})[k]));
+    cmp('dampenerMaxLh', a.dampenerMaxLh, b.dampenerMaxLh);
+    keys(a.extraction, b.extraction).forEach(k => cmp('extraction.' + k, (a.extraction || {})[k], (b.extraction || {})[k]));
+    keys(a.recipes, b.recipes).forEach(k => cmp('recipe.' + k, (a.recipes || {})[k], (b.recipes || {})[k]));
+    cmp('bins', binsText(a.bins || []), binsText(b.bins || []));
+    cmp('floors', a.floors || [], b.floors || []);
+    return d;
+  }
+
+  // ---------- diário de turno ----------
+  // entradas: {kind:'issue'|'activity', t, prodDay, period, lineId, ...}; anulação = novo registo {kind:'void', voids:uid}
+  function effectiveLog(entries) {
+    const voided = new Set((entries || []).filter(e => e.kind === 'void').map(e => e.voids));
+    return (entries || []).filter(e => e.kind !== 'void' && !voided.has(e.uid));
+  }
+  function validateIssue(o) {
+    const e = [];
+    if (ISSUE_CATS.indexOf(o.category) < 0) e.push('category');
+    if (!String(o.description || '').trim()) e.push('description');
+    const dt = num(o.downtimeMin);
+    if (dt !== null && (isNaN(dt) || dt < 0 || dt > 24 * 60)) e.push('downtimeMin');
+    return e;
+  }
+  function validateActivity(o) {
+    const e = [];
+    if (ACT_TYPES.indexOf(o.type) < 0) e.push('type');
+    if (o.type === 'housekeeping' && !String(o.floor || '').trim()) e.push('floor');
+    if (o.type === 'reprocessing') { const q = num(o.qtyKg, 'kg'); if (q === null || isNaN(q) || q <= 0) e.push('qtyKg'); }
+    if (o.type !== 'housekeeping' && o.type !== 'reprocessing' && !String(o.description || '').trim()) e.push('description');
+    return e;
+  }
+  // Registos de um turno (dia de produção + período)
+  // range: [início, fim) do turno em ms; d: {log, jobs, now}
+  function shiftSummary(day, period, range, d) {
+    const log = effectiveLog(d.log).filter(x => x.prodDay === day && x.period === period);
+    const issues = log.filter(x => x.kind === 'issue').sort((a, b) => a.t - b.t);
+    const acts = log.filter(x => x.kind === 'activity').sort((a, b) => a.t - b.t);
+    const now = isNum(d.now) ? d.now : Date.now();
+    const jobs = (d.jobs || []).filter(j => j.startedAt < range[1] && (j.closedAt || now) >= range[0]).sort((a, b) => a.startedAt - b.startedAt);
+    const downtime = issues.reduce((s, i) => s + (isNum(i.downtimeMin) ? i.downtimeMin : 0), 0);
+    return { issues, acts, jobs, downtimeMin: downtime, openIssues: issues.filter(i => i.status !== 'closed').length };
+  }
+
+  // ---------- identificadores (formato preparado para sincronização) ----------
+  function uid(deviceId, now, rnd) {
+    const r = rnd || Math.random().toString(36).slice(2, 8);
+    return (deviceId || 'dev') + '-' + Number(now).toString(36) + '-' + r;
+  }
+
+  function validProdBackup(o) {
+    const okArr = k => o[k] === undefined || Array.isArray(o[k]);
+    if (!['jobs', 'binEvents', 'shiftLog', 'siloSnapshots', 'prodChanges'].every(okArr)) return false;
+    const okJobs = (o.jobs || []).every(j => j && typeof j.uid === 'string' && JOB_STATUS.indexOf(j.status) >= 0 && typeof j.lineId === 'string');
+    const okBin = (o.binEvents || []).every(e => e && typeof e.uid === 'string' && typeof e.binId === 'string' && ['FILL', 'EMPTY', 'SET', 'VOID'].indexOf(e.type) >= 0);
+    const okLog = (o.shiftLog || []).every(e => e && typeof e.uid === 'string' && ['issue', 'activity', 'void'].indexOf(e.kind) >= 0);
+    return okJobs && okBin && okLog;
+  }
+
+  const api = { VERSION, COLOURS, SILO_GRADES, ISSUE_CATS, ACT_TYPES, JOB_STATUS, DEFAULT_BINS, BIN_SOURCE,
+    defaultProdConfig, num, waterFor, waterRate, defaultFeedTph, siloKg, snapshotFromSilosBackup, committedAfter,
+    availableKg, allocate, recipeSet, recipeFit, binState, binCheck, validateJob, parseBins, binsText,
+    validateProdConfig, prodConfigDiff, effectiveLog, validateIssue, validateActivity, shiftSummary, uid, validProdBackup };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.Prod = api;
+})(typeof window !== 'undefined' ? window : this);
