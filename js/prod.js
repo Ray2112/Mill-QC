@@ -11,74 +11,79 @@
   const VERSION = '1.2.0';
   const COLOURS = ['Amarelo', 'Branco'];
   const SILO_GRADES = ['G1', 'G2', 'OFF', 'PRI'];          // designações da app de Silos (REJ nunca vai a moagem)
-  // Códigos de paragem FMO — fonte: Downtime_Codes.xlsx (Folha1), recebido de Zhax 08-10-2026.
-  // [código, nome, categoria V1, categoria V2, decisão, Tier 3] — valores como no ficheiro (espaços retirados;
-  // células só com traços = vazio). A coluna "Tratamento OEE" não existe no ficheiro: não inventada.
+  // Códigos de paragem FMO — fonte: Downtime_Codes.xlsx (Folha1), versão 2, recebido de Zhax 08-10-2026.
+  // [código, nome, categoria V1, categoria V2, Tier 3] — valores como no ficheiro (espaços retirados;
+  // células só com traços = vazio). V2 é a categoria de referência (decisão de Zhax, 08-10-2026).
+  // Coluna "Decisão" retirada (a pedido). Nome PT e tratamento OEE: vazios até definidos com autorização.
   const DOWNTIME_SOURCE = 'Downtime_Codes.xlsx (08-10-2026)';
   const DOWNTIME_CODES = [
-    ["P01", "PRODUCTION START-UP", "Planned - Production", "Process", "NP3", "Process"],
-    ["A01", "SCALES", "Unplanned - Mechanical Breakdown", "Breakdown", null, "Breakdown"],
-    ["O01", "MANAGEMENT AUTHORIZATION", "Planned - Other", "Planned", null, "Other"],
-    ["P02", "PRODUCTION COMPLETION", "Planned - Production", "Process", "NP3", "Process"],
-    ["A02", "ASPIRATION FAN", "Unplanned - Mechanical Breakdown", "Breakdown", null, "Breakdown"],
-    ["O02", "FUMIGATION", "Planned - Fumigation", "Planned", null, "Other"],
-    ["P03", "PRODUCTION CHANGEOVER", "Planned - Production", "Process", "NP3", "Process"],
-    ["A03", "PNEUMATIC FAN", "Unplanned - Mechanical Breakdown", "Breakdown", null, "Breakdown"],
-    ["O03", "SCHEDULED MAINTENANCE", "Planeada - Preventiva", "Planned", null, "Other"],
-    ["P04", "LOOSE BELTS", "Unplanned - Operating Problems", "Process", null, "Process"],
-    ["A04", "FLOUR CIRCUIT", "Unplanned - Mechanical Breakdown", "Breakdown", null, "Breakdown"],
-    ["O04", "POWER FAILURE", "Unplanned - Electrical Breakdown", "Power Failure", null, "Power Failure"],
-    ["P05", "LEVEL PROBE TRIP", "Unplanned - Operating Problems", "Process", null, "Process"],
-    ["A05", "SASSORES", "Unplanned - Mechanical Breakdown", "Breakdown", null, "Breakdown"],
-    ["O05", "SPECIAL PROJECTS", "Planned - Other", "Planned", null, "Other"],
-    ["P06", "ROLLER CHANGE", "Unplanned - Operating Problems", "Process", "PL2", "Process"],
-    ["A06", "AIRLOCK LINE", "Unplanned - Mechanical Breakdown", "Breakdown", null, "Breakdown"],
-    ["O06", "SCHEDULED REPAIRS", "Planned - Other", "Planned", null, "Other"],
-    ["P07", "BRAN BIN FILLING", "Unplanned - Operating Problems", "Process", null, "Process"],
-    ["A07", "MILLS", "Unplanned - Mechanical Breakdown", "Breakdown", null, "Breakdown"],
-    ["O07", "PREVENTIVE MAINTENANCE PLAN COMPLIANCE", "Planeada - Preventiva", "Planned", null, "Other"],
-    ["P08", "ENTOLETER FILLING", "Unplanned - Operating Problems", "Process", null, "Process"],
-    ["A08", "MILLING ELECTRICAL PANEL", "Unplanned - Electrical Breakdown", "Breakdown", null, "Breakdown"],
-    ["O08", "SCALE CALIBRATION", "Planeada - Produção", "Planned", null, "Other"],
-    ["P09", "MILL FILLING", "Unplanned - Operating Problems", "Process", null, "Process"],
-    ["A09", "COMPRESSOR/AIR NETWORK", "Unplanned - Mechanical Breakdown", "Breakdown", null, "Breakdown"],
-    ["O09", "INVENTORY", "Planned - Inventory", "Planned", null, "Other"],
-    ["P10", "PLANSIFTER FILLING", "Unplanned - Operating Problems", "Process", null, "Process"],
-    ["A10", "ENTOLETERS", "Unplanned - Mechanical Breakdown", "Breakdown", null, "Breakdown"],
-    ["O10", "NO PRODUCTION", "Planned - No Production Plan", "Planned", null, "Other"],
-    ["P11", "PNEUMATIC SYSTEM FILLING", "Unplanned - Operating Problems", "Process", null, "Process"],
-    ["A11", "BRAN BRUSHERS", "Unplanned - Mechanical Breakdown", "Breakdown", null, "Breakdown"],
-    ["O11", "FEED MILL", "Unplanned - Other", "Feed Mill", null, "Feed Mill"],
-    ["P12", "OTHER FILLING", "Unplanned - Operating Problems", "Process", null, "Process"],
-    ["A12", "FILTERS", "Unplanned - Mechanical Breakdown", "Breakdown", null, "Breakdown"],
-    ["P13", "FILTER CLEANING", "Unplanned - Operating Problems", "Process", null, "Process"],
-    ["A13", "SAFETY SIFTER", "Unplanned - Mechanical Breakdown", "Breakdown", null, "Breakdown"],
-    ["O50", "OTHER STOP", "Planned - Other", "Planned", null, "Other"],
-    ["P14", "OTHER CLEANING", "Unplanned - Operating Problems", "Process", null, "Process"],
-    ["A14", "PLANSIFTER", "Unplanned - Mechanical Breakdown", "Breakdown", null, "Breakdown"],
-    ["P15", "BROKEN SIEVES/SCREENS", "Unplanned - Operating Problems", "Process", null, "Process"],
-    ["A15", "BRAN SCREW CONVEYOR", "Unplanned - Mechanical Breakdown", "Breakdown", null, "Breakdown"],
-    ["P16", "NO GRAIN AVAILABLE FOR MILLING", "Planned - Raw Material Shortage", "Planned", null, "Other"],
-    ["A16", "VIBRATORS", "Unplanned - Electrical Breakdown", "Breakdown", null, "Breakdown"],
-    ["P17", "FLOUR BIN FILLING", "Unplanned - Excess Finished Product", null, null, "Other"],
-    ["A17", "BROKEN BELTS", "Unplanned - Operating Problem", "Breakdown", "NP1", "Breakdown"],
-    ["P18", "INSPECTION/CLEANING PLAN COMPLIANCE", "Planned - Preventive Maintenance", "Process", null, "Process"],
-    ["A18", "FLOUR COLLECTOR SCREW CONVEYOR", "Unplanned - Mechanical Breakdown", "Breakdown", null, "Breakdown"],
-    ["P19", "EXCESS FINISHED PRODUCT", "Unplanned - Excess Finished Product", "Planned", null, "Other"],
-    ["A19", "BURNT MOTOR/GEAR MOTOR", "Unplanned - Electrical Breakdown", "Breakdown", null, "Breakdown"],
-    ["P20", "THERMAL TRIP", "Unplanned - Operating Problems", "Process", null, "Process"],
-    ["A20", "DRAG CONVEYOR SCRAPER", "Unplanned - Mechanical Breakdown", "Breakdown", null, "Breakdown"],
-    ["P21", "NO APPARENT REASON", "Planned - Other", "Process", "NP3", "Process"],
-    ["A21", "CONVEYOR", "Unplanned - Mechanical Breakdown", "Breakdown", null, "Breakdown"],
-    ["P22", "FINISHER FILLING", "Unplanned - Operating Problems", "Process", null, "Process"],
-    ["A22", "BUCKET ELEVATORS", "Unplanned - Mechanical Breakdown", "Breakdown", null, "Breakdown"],
-    ["P23", "POLISHER FILLING", "Unplanned - Operating Problems", "Process", null, "Process"],
-    ["P24", "EMERGENCY STOP", null, null, "NP3", "Process"],
-    ["A50", "OTHER BREAKDOWNS", "Unplanned - Mechanical Breakdown", "Breakdown", null, "Breakdown"],
-    ["P50", "OTHER PROCESS STOP", "Planned - Production", "Process", "NP3", "Process"]
-  ].map(([code, name, v1, v2, decision, tier3]) => ({ code, name, v1, v2, decision, tier3 }));
+    ["P01", "PRODUCTION START-UP", "Planned - Production", "Process", "Process"],
+    ["A01", "SCALES", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
+    ["O01", "MANAGEMENT AUTHORIZATION", "Planned - Other", "Planned", "Other"],
+    ["P02", "PRODUCTION COMPLETION", "Planned - Production", "Process", "Process"],
+    ["A02", "ASPIRATION FAN", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
+    ["O02", "FUMIGATION", "Planned - Fumigation", "Planned", "Other"],
+    ["P03", "PRODUCTION CHANGEOVER", "Planned - Production", "Process", "Process"],
+    ["A03", "PNEUMATIC FAN", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
+    ["O03", "SCHEDULED MAINTENANCE", "Planeada - Preventiva", "Planned", "Other"],
+    ["P04", "LOOSE BELTS", "Unplanned - Operating Problems", "Process", "Process"],
+    ["A04", "FLOUR CIRCUIT", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
+    ["O04", "POWER FAILURE", "Unplanned - Electrical Breakdown", "Power Failure", "Power Failure"],
+    ["P05", "LEVEL PROBE TRIP", "Unplanned - Operating Problems", "Process", "Process"],
+    ["A05", "SASSORES", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
+    ["O05", "SPECIAL PROJECTS", "Planned - Other", "Planned", "Other"],
+    ["P06", "ROLLER CHANGE", "Unplanned - Operating Problems", "Process", "Process"],
+    ["A06", "AIRLOCK LINE", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
+    ["O06", "SCHEDULED REPAIRS", "Planned - Other", "Planned", "Other"],
+    ["P07", "BRAN BIN FILLING", "Unplanned - Operating Problems", "Process", "Process"],
+    ["A07", "MILLS", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
+    ["O07", "PREVENTIVE MAINTENANCE PLAN COMPLIANCE", "Planeada - Preventiva", "Planned", "Other"],
+    ["P08", "ENTOLETER FILLING", "Unplanned - Operating Problems", "Process", "Process"],
+    ["A08", "MILLING ELECTRICAL PANEL", "Unplanned - Electrical Breakdown", "Breakdown", "Breakdown"],
+    ["O08", "SCALE CALIBRATION", "Planeada - Produção", "Planned", "Other"],
+    ["P09", "MILL FILLING", "Unplanned - Operating Problems", "Process", "Process"],
+    ["A09", "COMPRESSOR/AIR NETWORK", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
+    ["O09", "INVENTORY", "Planned - Inventory", "Planned", "Other"],
+    ["P10", "PLANSIFTER FILLING", "Unplanned - Operating Problems", "Process", "Process"],
+    ["A10", "ENTOLETERS", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
+    ["O10", "NO PRODUCTION", "Planned - No Production Plan", "Planned", "Other"],
+    ["P11", "PNEUMATIC SYSTEM FILLING", "Unplanned - Operating Problems", "Process", "Process"],
+    ["A11", "BRAN BRUSHERS", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
+    ["O11", "FEED MILL", "Unplanned - Other", "Feed Mill", "Feed Mill"],
+    ["P12", "OTHER FILLING", "Unplanned - Operating Problems", "Process", "Process"],
+    ["A12", "FILTERS", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
+    ["P13", "FILTER CLEANING", "Unplanned - Operating Problems", "Process", "Process"],
+    ["A13", "SAFETY SIFTER", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
+    ["O50", "OTHER STOP", "Planned - Other", "Planned", "Other"],
+    ["P14", "OTHER CLEANING", "Unplanned - Operating Problems", "Process", "Process"],
+    ["A14", "PLANSIFTER", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
+    ["P15", "BROKEN SIEVES/SCREENS", "Unplanned - Operating Problems", "Process", "Process"],
+    ["A15", "BRAN SCREW CONVEYOR", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
+    ["P16", "NO GRAIN AVAILABLE FOR MILLING", "Planned - Raw Material Shortage", "Planned", "Other"],
+    ["A16", "VIBRATORS", "Unplanned - Electrical Breakdown", "Breakdown", "Breakdown"],
+    ["P17", "FLOUR BIN FILLING", "Unplanned - Excess Finished Product", null, "Other"],
+    ["A17", "BROKEN BELTS", "Unplanned - Operating Problem", "Breakdown", "Breakdown"],
+    ["P18", "INSPECTION/CLEANING PLAN COMPLIANCE", "Planned - Preventive Maintenance", "Process", "Process"],
+    ["A18", "FLOUR COLLECTOR SCREW CONVEYOR", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
+    ["P19", "EXCESS FINISHED PRODUCT", "Unplanned - Excess Finished Product", "Planned", "Other"],
+    ["A19", "BURNT MOTOR/GEAR MOTOR", "Unplanned - Electrical Breakdown", "Breakdown", "Breakdown"],
+    ["P20", "THERMAL TRIP", "Unplanned - Operating Problems", "Process", "Process"],
+    ["A20", "DRAG CONVEYOR SCRAPER", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
+    ["P21", "NO APPARENT REASON", "Planned - Other", "Process", "Process"],
+    ["A21", "CONVEYOR", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
+    ["P22", "FINISHER FILLING", "Unplanned - Operating Problems", "Process", "Process"],
+    ["A22", "BUCKET ELEVATORS", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
+    ["P23", "POLISHER FILLING", "Unplanned - Operating Problems", "Process", "Process"],
+    ["P24", "EMERGENCY STOP", null, null, "Process"],
+    ["A50", "OTHER BREAKDOWNS", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
+    ["P50", "OTHER PROCESS STOP", "Planned - Production", "Process", "Process"]
+  ].map(([code, name, v1, v2, tier3]) => ({ code, name, namePt: null, v1, v2, tier3, oee: null, active: true }));
   const TIER3 = ['Process', 'Breakdown', 'Feed Mill', 'Power Failure', 'Other'];
-  const findCode = c => DOWNTIME_CODES.find(x => x.code === c) || null;
+  const V2_CATS = ['Process', 'Breakdown', 'Planned', 'Power Failure', 'Feed Mill'];
+  // Tratamento OEE — lista PROPOSTA (prática OEE corrente), não vem do ficheiro FMO; vazio = não definido.
+  const OEE_TREAT = ['planned', 'availability', 'performance'];
+  const defaultCodes = () => DOWNTIME_CODES.map(c => Object.assign({}, c));
+  const findCode = (c, list) => (list || DOWNTIME_CODES).find(x => x.code === c) || null;
   const ACT_TYPES = ['housekeeping', 'reprocessing', 'cleaning', 'maintenance', 'other'];
   const JOB_STATUS = ['running', 'done', 'cancelled'];
 
@@ -98,7 +103,9 @@
       recipes: {},                     // { productId: { colours:[], grades:[] } } — vazio até definido
       bins: DEFAULT_BINS.map(b => ({ id: b.id, lines: b.lines.slice(), capT: b.capT })),
       binSource: BIN_SOURCE,
-      floors: []                       // pisos para limpeza — lista definida pela empresa
+      floors: [],                      // pisos para limpeza — lista definida pela empresa
+      downtimeCodes: defaultCodes(),   // editáveis com autorização
+      codesSource: DOWNTIME_SOURCE
     };
   }
 
@@ -434,7 +441,26 @@
     keys(a.recipes, b.recipes).forEach(k => cmp('recipe.' + k, (a.recipes || {})[k], (b.recipes || {})[k]));
     cmp('bins', binsText(a.bins || []), binsText(b.bins || []));
     cmp('floors', a.floors || [], b.floors || []);
+    const ca = {}, cb = {};
+    (a.downtimeCodes || []).forEach(c => { ca[c.code] = c; }); (b.downtimeCodes || []).forEach(c => { cb[c.code] = c; });
+    keys(ca, cb).forEach(k => ['name', 'namePt', 'v2', 'tier3', 'oee', 'active'].forEach(f => cmp('code.' + k + '.' + f, (ca[k] || {})[f], (cb[k] || {})[f])));
     return d;
+  }
+
+  // ---------- códigos de paragem: validação da lista editada ----------
+  function validateCodes(list) {
+    const e = [], seen = new Set();
+    (list || []).forEach(c => {
+      if (!/^[A-Z][0-9]{2,3}$/.test(c.code || '')) e.push('code:' + (c.code || '?'));
+      else if (seen.has(c.code)) e.push('dup:' + c.code);
+      seen.add(c.code);
+      if (!String(c.name || '').trim()) e.push('name:' + c.code);
+      if (c.v2 && V2_CATS.indexOf(c.v2) < 0) e.push('v2:' + c.code);
+      if (c.tier3 && TIER3.indexOf(c.tier3) < 0) e.push('tier3:' + c.code);
+      if (c.oee && OEE_TREAT.indexOf(c.oee) < 0) e.push('oee:' + c.code);
+    });
+    if (!(list || []).some(c => c.active !== false)) e.push('empty');
+    return e;
   }
 
   // ---------- diário de turno ----------
@@ -444,11 +470,12 @@
     return (entries || []).filter(e => e.kind !== 'void' && !voided.has(e.uid));
   }
   // Ocorrência: com paragem (min > 0) exige código de paragem válido; sem paragem o código é opcional.
-  function validateIssue(o) {
+  function validateIssue(o, codes) {
     const e = [];
     const dt = num(o.downtimeMin);
     if (dt !== null && (isNaN(dt) || dt < 0 || dt > 24 * 60)) e.push('downtimeMin');
-    if (o.code && !findCode(o.code)) e.push('code');
+    const cd = o.code ? findCode(o.code, codes) : null;
+    if (o.code && (!cd || cd.active === false)) e.push('code');
     else if (!o.code && isNum(dt) && dt > 0) e.push('code');
     if (!String(o.description || '').trim()) e.push('description');
     return e;
@@ -471,9 +498,15 @@
     const now = isNum(d.now) ? d.now : Date.now();
     const jobs = (d.jobs || []).filter(j => j.startedAt < range[1] && (j.closedAt || now) >= range[0]).sort((a, b) => a.startedAt - b.startedAt);
     const downtime = issues.reduce((s, i) => s + (isNum(i.downtimeMin) ? i.downtimeMin : 0), 0);
-    const byTier3 = {};
-    issues.forEach(i => { if (isNum(i.downtimeMin) && i.downtimeMin > 0) { const c = findCode(i.code); const k = c ? c.tier3 : '?'; byTier3[k] = (byTier3[k] || 0) + i.downtimeMin; } });
-    return { issues, acts, jobs, downtimeMin: downtime, byTier3, openIssues: issues.filter(i => i.status !== 'closed').length };
+    // Por categoria V2 (referência) e tratamento OEE, a partir do código gravado no registo (cópia no momento)
+    const byV2 = {}, byOee = {};
+    issues.forEach(i => {
+      if (!(isNum(i.downtimeMin) && i.downtimeMin > 0)) return;
+      const c = i.codeInfo || findCode(i.code, d.codes) || {};
+      const k = c.v2 || '', o = c.oee || '';
+      byV2[k] = (byV2[k] || 0) + i.downtimeMin; byOee[o] = (byOee[o] || 0) + i.downtimeMin;
+    });
+    return { issues, acts, jobs, downtimeMin: downtime, byV2, byOee, openIssues: issues.filter(i => i.status !== 'closed').length };
   }
 
   // ---------- identificadores (formato preparado para sincronização) ----------
@@ -491,7 +524,7 @@
     return okJobs && okBin && okLog;
   }
 
-  const api = { VERSION, COLOURS, SILO_GRADES, DOWNTIME_CODES, DOWNTIME_SOURCE, TIER3, findCode, ACT_TYPES, JOB_STATUS, DEFAULT_BINS, BIN_SOURCE,
+  const api = { VERSION, COLOURS, SILO_GRADES, DOWNTIME_CODES, DOWNTIME_SOURCE, TIER3, V2_CATS, OEE_TREAT, defaultCodes, findCode, validateCodes, ACT_TYPES, JOB_STATUS, DEFAULT_BINS, BIN_SOURCE,
     defaultProdConfig, num, waterFor, waterRate, defaultFeedTph, siloKg, snapshotFromSilosBackup, committedAfter,
     availableKg, allocate, recipeSet, recipeFit, binState, binCheck, validateJob, readingCalc, needsShiftReading, parseBins, binsText,
     validateProdConfig, prodConfigDiff, effectiveLog, validateIssue, validateActivity, shiftSummary, uid, validProdBackup };

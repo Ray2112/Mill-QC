@@ -331,7 +331,8 @@ t('diário: validação, anulação e resumo do turno', () => {
   const s = P.shiftSummary('2026-10-08', 'D', [60, 500], { log, jobs, now: 2000 });
   assert.strictEqual(s.issues.length, 2); assert.strictEqual(s.acts.length, 1);
   assert.strictEqual(s.downtimeMin, 45); assert.strictEqual(s.openIssues, 1);
-  assert.deepStrictEqual(s.byTier3, { Breakdown: 30, Process: 15 });
+  assert.deepStrictEqual(s.byV2, { Breakdown: 30, Process: 15 });
+  assert.deepStrictEqual(s.byOee, { '': 45 });                              // OEE ainda não definido
   assert.deepStrictEqual(s.jobs.map(j => j.uid), ['j1']);
 });
 
@@ -340,9 +341,29 @@ t('códigos de paragem FMO (Downtime_Codes.xlsx)', () => {
   assert.strictEqual(new Set(P.DOWNTIME_CODES.map(c => c.code)).size, 60);
   assert.ok(P.DOWNTIME_CODES.every(c => /^[PAO]\d{2}$/.test(c.code) && c.code === c.code.trim()));
   assert.ok(P.DOWNTIME_CODES.every(c => P.TIER3.indexOf(c.tier3) >= 0));
-  assert.deepStrictEqual(P.findCode('A02'), { code: 'A02', name: 'ASPIRATION FAN', v1: 'Unplanned - Mechanical Breakdown', v2: 'Breakdown', decision: null, tier3: 'Breakdown' });
+  assert.ok(P.DOWNTIME_CODES.every(c => c.v2 === null || P.V2_CATS.indexOf(c.v2) >= 0));
+  assert.deepStrictEqual(P.findCode('A02'), { code: 'A02', name: 'ASPIRATION FAN', namePt: null, v1: 'Unplanned - Mechanical Breakdown', v2: 'Breakdown', tier3: 'Breakdown', oee: null, active: true });
   assert.strictEqual(P.findCode('P24').v2, null);               // célula só com traços no ficheiro
   assert.strictEqual(P.findCode('O04').tier3, 'Power Failure');
+  assert.ok(P.DOWNTIME_CODES.every(c => c.oee === null && c.namePt === null && !('decision' in c)));
+  assert.deepStrictEqual(P.validateCodes(P.defaultCodes()), []);
+});
+
+t('códigos editáveis: validação, inactivos, diferenças', () => {
+  const list = P.defaultCodes();
+  list[0].namePt = 'ARRANQUE DE PRODUÇÃO'; list[0].oee = 'planned';
+  list.find(c => c.code === 'A22').active = false;
+  list.push({ code: 'P25', name: 'NEW STOP', namePt: null, v1: null, v2: 'Process', tier3: null, oee: 'availability', active: true });
+  assert.deepStrictEqual(P.validateCodes(list), []);
+  const bad = P.defaultCodes().concat([{ code: 'p1', name: '' }, { code: 'P01', name: 'x' }]);
+  bad.find(c => c.code === 'P02').oee = 'xyz'; bad.find(c => c.code === 'P03').v2 = 'Other';
+  assert.deepStrictEqual(P.validateCodes(bad).sort(), ['code:p1', 'dup:P01', 'name:p1', 'oee:P02', 'v2:P03']);
+  // inactivo não pode ser usado em novas ocorrências
+  assert.deepStrictEqual(P.validateIssue({ code: 'A22', description: 'x', downtimeMin: '5' }, list), ['code']);
+  assert.deepStrictEqual(P.validateIssue({ code: 'P25', description: 'x', downtimeMin: '5' }, list), []);
+  const a = P.defaultProdConfig(), b = Object.assign({}, a, { downtimeCodes: list });
+  const d = P.prodConfigDiff(a, b).map(x => x.field);
+  assert.deepStrictEqual(d.sort(), ['code.A22.active', 'code.P01.namePt', 'code.P01.oee', 'code.P25.active', 'code.P25.name', 'code.P25.oee', 'code.P25.v2'].sort());
 });
 
 t('identificador e validação da cópia', () => {

@@ -206,6 +206,7 @@
       case 'limits': return viewLimits();
       case 'prod': return PU.view();
       case 'prodset': return PU.viewProdSet();
+      case 'codes': return PU.viewCodes();
       default: return viewHome();
     }
   }

@@ -1,6 +1,13 @@
 /* Textos de Produção PT (pré-AO90) / EN — chaves idênticas. Junta-se a window.I18N. */
 (function () {
   const pt = {
+    noV2: 'sem V2', byV2: 'Paragem por categoria (V2)', byOee: 'Paragem por tratamento OEE', oeeTreat: 'Tratamento OEE', oeeNotSet: 'OEE não definido',
+    oee_planned: 'Paragem planeada (excluída do tempo planeado)', oee_availability: 'Perda de disponibilidade', oee_performance: 'Perda de desempenho',
+    codeNamePt: 'Nome (PT)', cg_X: 'Outros códigos', codesTitle: 'Códigos de paragem',
+    codesSummary: '{n} códigos activos · fonte: {s} · nomes PT: {pt} · tratamento OEE definido: {o}', editCodes: 'Ver / editar códigos',
+    codesHelp: 'Alterar exige supervisor, motivo e PIN; cada alteração fica registada. Os registos já feitos guardam o código como estava. Códigos usados não se apagam: desactive-os.',
+    oeeProposal: 'Lista de tratamento OEE proposta pela app (prática OEE corrente) — não vem do ficheiro FMO. Confirmar.',
+    inactive: 'inactivo', activeCode: 'Activo (aparece na lista)', newCode: 'Novo código', newCodeHelp: 'Formato: letra + 2 ou 3 dígitos (ex.: P25). V2, Tier 3 e OEE definem-se depois de gravar.',
     actionCol: 'Acção tomada', maizeMoistureCol: 'Humidade do milho', downtimeCode: 'Código de paragem', noStopCode: 'sem paragem', cg_P: 'P — Processo', cg_A: 'A — Avarias', cg_O: 'O — Outras',
     codeName: 'Descrição do código', decisionCol: 'Decisão', f_code: 'código de paragem (obrigatório com paragem)', byTier3: 'Paragem por Tier 3',
     codesSource: 'Códigos: {s}',
@@ -83,6 +90,13 @@
     jobOnLine: 'Ordem: {p} · {kg} kg · água {w} L/h · desde {h}'
   };
   const en = {
+    noV2: 'no V2', byV2: 'Downtime by category (V2)', byOee: 'Downtime by OEE treatment', oeeTreat: 'OEE treatment', oeeNotSet: 'OEE not set',
+    oee_planned: 'Planned stop (excluded from planned time)', oee_availability: 'Availability loss', oee_performance: 'Performance loss',
+    codeNamePt: 'Name (PT)', cg_X: 'Other codes', codesTitle: 'Downtime codes',
+    codesSummary: '{n} active codes · source: {s} · PT names: {pt} · OEE treatment set: {o}', editCodes: 'View / edit codes',
+    codesHelp: 'Changes need supervisor, reason and PIN; every change is logged. Existing records keep the code as it was. Used codes are not deleted: deactivate them.',
+    oeeProposal: 'OEE treatment list proposed by the app (common OEE practice) — not from the FMO file. To confirm.',
+    inactive: 'inactive', activeCode: 'Active (shown in the list)', newCode: 'New code', newCodeHelp: 'Format: letter + 2 or 3 digits (e.g. P25). Set V2, Tier 3 and OEE after saving.',
     actionCol: 'Action taken', maizeMoistureCol: 'Maize moisture', downtimeCode: 'Downtime code', noStopCode: 'no stoppage', cg_P: 'P — Process', cg_A: 'A — Breakdowns', cg_O: 'O — Other',
     codeName: 'Code description', decisionCol: 'Decision', f_code: 'downtime code (required with downtime)', byTier3: 'Downtime by Tier 3',
     codesSource: 'Codes: {s}',

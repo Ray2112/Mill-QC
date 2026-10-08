@@ -77,3 +77,4 @@ table.blend{table-layout:fixed;width:100%}table.blend th,table.blend td{white-sp
 table.blend th:first-child,table.blend td:first-child{width:44px}
 table.blend input{width:100%;min-width:0;font-size:16px;padding:7px 6px;border:1px solid #c9d2c8;border-radius:8px}
 .seg.mode{margin:4px 0 6px}.seg.mode button{flex:1}
+.code-ed.inactive{opacity:.6}.code-ed summary small{color:var(--sub)}

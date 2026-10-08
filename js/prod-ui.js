@@ -13,12 +13,17 @@ window.ProdUI = function (C) {
   const JOB_ST = { running: 1, done: 1, cancelled: 1 };
   const ACT = new Set(P.ACT_TYPES);
   // Código de paragem: "A07 MILLS · Breakdown" (texto do ficheiro FMO, sem tradução)
-  const codeLabel = c => { const d = P.findCode(c); return d ? d.code + ' ' + d.name : (c || ''); };
+  const codes = () => S.cfgP.downtimeCodes;
+  const cName = d => (S.lang === 'pt' && d.namePt) ? d.namePt : d.name;
+  const codeLabel = (c, info) => { const d = info || P.findCode(c, codes()); return d ? d.code + ' ' + cName(d) : (c || ''); };
+  const v2Label = v => v || t('noV2');
+  const oeeLabel = o => o ? t('oee_' + o) : t('oeeNotSet');
   const GROUPS = [['P', 'cg_P'], ['A', 'cg_A'], ['O', 'cg_O']];
 
   // ---------- dados ----------
   async function load() {
     S.cfgP = (await DB.getConfig('cfgP')) || P.defaultProdConfig();
+    if (!Array.isArray(S.cfgP.downtimeCodes)) { S.cfgP.downtimeCodes = P.defaultCodes(); S.cfgP.codesSource = P.DOWNTIME_SOURCE; }   // configuração anterior à v1.2
     S.deviceId = await DB.getConfig('deviceId');
     if (!S.deviceId) {
       S.deviceId = 'd' + Array.from(crypto.getRandomValues(new Uint8Array(4))).map(x => x.toString(16).padStart(2, '0')).join('');
@@ -327,14 +332,14 @@ window.ProdUI = function (C) {
   function viewLog() {
     const ls = logShift();
     const range = shiftRange(ls.day, ls.period);
-    const sm = P.shiftSummary(ls.day, ls.period, range, { log: S.shiftLog, jobs: S.jobs, now: now() });
+    const sm = P.shiftSummary(ls.day, ls.period, range, { log: S.shiftLog, jobs: S.jobs, now: now(), codes: codes() });
     const f = S.logForm;
     return `<section class="card"><h3>${esc(t('shiftLog'))}</h3>
       <div class="grid2"><label class="fld">${esc(t('prodDay'))}<input type="date" id="logDay" value="${esc(ls.day)}"></label>
       <label class="fld">${esc(t('shift'))}<select id="logPeriod"><option value="D" ${ls.period === 'D' ? 'selected' : ''}>${esc(t('shift_D'))} 07–19</option><option value="N" ${ls.period === 'N' ? 'selected' : ''}>${esc(t('shift_N'))} 19–07</option></select></label></div>
       <div class="kpis k4"><div><b>${sm.jobs.length}</b><span>${esc(t('ptab_jobs'))}</span></div><div class="${sm.openIssues ? 'd-warn' : ''}"><b>${sm.issues.length}</b><span>${esc(t('issues'))}</span></div>
         <div><b>${sm.downtimeMin}</b><span>${esc(t('downtimeMin'))}</span></div><div><b>${sm.acts.length}</b><span>${esc(t('activities'))}</span></div></div>
-      ${Object.keys(sm.byTier3).length ? `<p class="sub">${esc(t('byTier3'))}: ${Object.keys(sm.byTier3).map(k => esc(k) + ' ' + sm.byTier3[k] + ' min').join(' · ')}</p>` : ''}
+      ${Object.keys(sm.byV2).length ? `<p class="sub">${esc(t('byV2'))}: ${Object.keys(sm.byV2).map(k => esc(v2Label(k)) + ' ' + sm.byV2[k] + ' min').join(' · ')}<br>${esc(t('byOee'))}: ${Object.keys(sm.byOee).map(k => esc(oeeLabel(k)) + ' ' + sm.byOee[k] + ' min').join(' · ')}</p>` : ''}
       ${f ? '' : `<div class="row"><button class="btn primary" data-pact="newissue">＋ ${esc(t('newIssue'))}</button><button class="btn" data-pact="newact">＋ ${esc(t('newActivity'))}</button></div>`}
       <div class="row"><button class="btn ghost small" data-pact="shiftxlsx">${esc(t('genExcel'))}</button>
         <a class="btn ghost small" target="_blank" rel="noopener" href="${esc(C.waLink(shiftText(ls, sm)))}">${esc(t('sendSummaryWa'))}</a></div></section>
@@ -350,7 +355,8 @@ window.ProdUI = function (C) {
     const head = `<label class="fld">${esc(t('time'))}<input type="datetime-local" data-lf="time" value="${esc(f.time)}"></label>
       <label class="fld">${esc(t('line'))}<select data-lf="lineId">${lineOpts(f.lineId)}</select></label>`;
     if (f.kind === 'issue') return `<section class="card"><h3>${esc(t('newIssue'))}</h3><div class="grid2">${head}
-        <label class="fld">${esc(t('downtimeCode'))}<select data-lf="code"><option value="">— ${esc(t('noStopCode'))}</option>${GROUPS.map(([g, k]) => `<optgroup label="${esc(t(k))}">${P.DOWNTIME_CODES.filter(c => c.code[0] === g).map(c => `<option value="${esc(c.code)}" ${f.code === c.code ? 'selected' : ''}>${esc(c.code + ' ' + c.name)}</option>`).join('')}</optgroup>`).join('')}</select></label>
+        <label class="fld">${esc(t('downtimeCode'))}<select data-lf="code"><option value="">— ${esc(t('noStopCode'))}</option>${GROUPS.map(([g, k]) => `<optgroup label="${esc(t(k))}">${codes().filter(c => c.code[0] === g && c.active !== false).map(c => `<option value="${esc(c.code)}" ${f.code === c.code ? 'selected' : ''}>${esc(c.code + ' ' + cName(c))}</option>`).join('')}</optgroup>`).join('')}
+        ${codes().some(c => c.active !== false && GROUPS.every(([g]) => c.code[0] !== g)) ? `<optgroup label="${esc(t('cg_X'))}">${codes().filter(c => c.active !== false && GROUPS.every(([g]) => c.code[0] !== g)).map(c => `<option value="${esc(c.code)}" ${f.code === c.code ? 'selected' : ''}>${esc(c.code + ' ' + cName(c))}</option>`).join('')}</optgroup>` : ''}</select></label>
         <label class="fld">${esc(t('equipment'))}<input data-lf="equipment" value="${esc(f.equipment)}"></label></div>
         <label class="fld req">${esc(t('issueDesc'))}<textarea rows="2" data-lf="description">${esc(f.description)}</textarea></label>
         <label class="fld">${esc(t('downtimeMin'))}<input inputmode="numeric" data-lf="downtimeMin" value="${esc(f.downtimeMin)}"></label>
@@ -382,10 +388,10 @@ window.ProdUI = function (C) {
     if (!String(f.by || '').trim()) return C.toast(t('needName'));
     let rec;
     if (f.kind === 'issue') {
-      const e = P.validateIssue(f);
+      const e = P.validateIssue(f, codes());
       if (e.length) return C.toast(t('fillFields') + ': ' + e.map(x => t('f_' + x)).join(', '));
       const dt = P.num(f.downtimeMin);
-      rec = Object.assign(base(tms), { kind: 'issue', t: tms, lineId: f.lineId, code: f.code || null, codeInfo: f.code ? Object.assign({ source: P.DOWNTIME_SOURCE }, P.findCode(f.code)) : null, equipment: f.equipment.trim(),
+      rec = Object.assign(base(tms), { kind: 'issue', t: tms, lineId: f.lineId, code: f.code || null, codeInfo: f.code ? Object.assign({ source: S.cfgP.codesSource || P.DOWNTIME_SOURCE }, P.findCode(f.code, codes())) : null, equipment: f.equipment.trim(),
         description: f.description.trim(), downtimeMin: dt, action: f.action.trim(), by: f.by.trim(), status: f.action.trim() ? 'closed' : 'open' });
       if (rec.status === 'closed') { rec.closedAt = tms; rec.closedBy = rec.by; rec.resolution = rec.action; }
     } else {
@@ -401,11 +407,11 @@ window.ProdUI = function (C) {
     await reload(); C.toast(t('saved')); keepScroll();
   }
   function issueItem(i) {
-    const cd = P.findCode(i.code);
+    const cd = i.codeInfo || P.findCode(i.code, codes());
     const open = i.status !== 'closed';
     const act = S.logAct && S.logAct.uid === i.uid ? S.logAct.mode : null;
     return `<div class="rowitem">
-      <div class="row between"><span><b>${esc(C.fmtTime(i.t))}</b>${i.code ? ' · <b>' + esc(codeLabel(i.code)) + '</b>' + (cd && cd.tier3 ? ' <small>(' + esc(cd.tier3) + ')</small>' : '') : ' · ' + esc(t('noStopCode'))}${i.lineId ? ' · ' + esc(C.lineName(i.lineId)) : ''}${i.equipment ? ' · ' + esc(i.equipment) : ''}</span>
+      <div class="row between"><span><b>${esc(C.fmtTime(i.t))}</b>${i.code ? ' · <b>' + esc(codeLabel(i.code, cd)) + '</b> <small>(' + esc(v2Label(cd && cd.v2)) + ')</small>' : ' · ' + esc(t('noStopCode'))}${i.lineId ? ' · ' + esc(C.lineName(i.lineId)) : ''}${i.equipment ? ' · ' + esc(i.equipment) : ''}</span>
         <span class="chip ${open ? 'd-warn' : 'd-accept'}">${esc(open ? t('is_open') : t('is_closed'))}</span></div>
       <div>${esc(i.description)}</div>
       <small>${isNum(i.downtimeMin) ? esc(t('downtimeMin')) + ': ' + i.downtimeMin + ' · ' : ''}${esc(t('crew'))} ${esc(i.crew)} · ${esc(i.by)}</small>
@@ -439,8 +445,8 @@ window.ProdUI = function (C) {
   function shiftText(ls, sm) {
     const lines = [t('waShiftTitle', { d: ls.day, s: t('shift_' + ls.period) })];
     sm.jobs.forEach(j => lines.push('▶ ' + C.lineName(j.lineId) + ' ' + C.prodName(j.productId) + ': ' + fmtKg(j.grainKg) + ' kg · ' + t('js_' + (JOB_ST[j.status] ? j.status : 'running'))));
-    lines.push(t('issues') + ': ' + sm.issues.length + ' (' + t('is_open') + ' ' + sm.openIssues + ') · ' + t('downtimeMin') + ': ' + sm.downtimeMin + (Object.keys(sm.byTier3).length ? ' (' + Object.keys(sm.byTier3).map(k => k + ' ' + sm.byTier3[k]).join(', ') + ')' : ''));
-    sm.issues.forEach(i => lines.push('• ' + C.fmtTime(i.t) + ' ' + (i.code ? codeLabel(i.code) : t('noStopCode')) + (i.lineId ? ' ' + i.lineId : '') + ': ' + i.description + (isNum(i.downtimeMin) ? ' (' + i.downtimeMin + ' min)' : '')));
+    lines.push(t('issues') + ': ' + sm.issues.length + ' (' + t('is_open') + ' ' + sm.openIssues + ') · ' + t('downtimeMin') + ': ' + sm.downtimeMin + (Object.keys(sm.byV2).length ? ' (' + Object.keys(sm.byV2).map(k => v2Label(k) + ' ' + sm.byV2[k]).join(', ') + ')' : ''));
+    sm.issues.forEach(i => lines.push('• ' + C.fmtTime(i.t) + ' ' + (i.code ? codeLabel(i.code, i.codeInfo) : t('noStopCode')) + (i.lineId ? ' ' + i.lineId : '') + ': ' + i.description + (isNum(i.downtimeMin) ? ' (' + i.downtimeMin + ' min)' : '')));
     if (sm.acts.length) lines.push(t('activities') + ': ' + sm.acts.map(a => t('at_' + (ACT.has(a.type) ? a.type : 'other')) + (a.floor ? ' ' + a.floor : '')).join('; '));
     return lines.join('\n');
   }
@@ -456,10 +462,11 @@ window.ProdUI = function (C) {
     const rds = [];
     (S.jobs || []).forEach(j => (j.readings || []).forEach(r => { if (r.t >= range[0] && r.t < range[1]) rds.push([C.fmtDT(r.t), r.crew, C.lineName(j.lineId), C.prodName(j.productId), r.m0, j.m1, r.waterLh, r.over ? t('overDampener') : '', r.by, r.kind === 'start' ? t('atStart') : '']); }));
     add(t('maizeMoisture'), [[t('dateTime'), t('crew'), t('line'), t('product'), t('maizeMoistureCol') + ' %', t('m1') + ' %', t('waterRate') + ' (L/h)', '', t('name'), ''], ...rds]);
-    add(t('issues'), [[t('dateTime'), t('crew'), t('line'), t('downtimeCode'), t('codeName'), 'V1', 'V2', 'Tier 3', t('decisionCol'), t('equipment'), t('issueDesc'), t('downtimeMin'), t('actionCol'), t('status'), t('reportedBy'), t('closedAt'), t('resolution')],
-      ...sm.issues.map(i => { const d = P.findCode(i.code) || {}; return [C.fmtDT(i.t), i.crew, i.lineId ? C.lineName(i.lineId) : '', i.code || '', d.name || '', d.v1 || '', d.v2 || '', d.tier3 || '', d.decision || '', i.equipment, i.description,
+    add(t('issues'), [[t('dateTime'), t('crew'), t('line'), t('downtimeCode'), t('codeName'), t('codeNamePt'), 'V1', 'V2', 'Tier 3', t('oeeTreat'), t('equipment'), t('issueDesc'), t('downtimeMin'), t('actionCol'), t('status'), t('reportedBy'), t('closedAt'), t('resolution')],
+      ...sm.issues.map(i => { const d = i.codeInfo || P.findCode(i.code, codes()) || {}; return [C.fmtDT(i.t), i.crew, i.lineId ? C.lineName(i.lineId) : '', i.code || '', d.name || '', d.namePt || '', d.v1 || '', d.v2 || '', d.tier3 || '', d.oee ? t('oee_' + d.oee) : '', i.equipment, i.description,
         isNum(i.downtimeMin) ? i.downtimeMin : '', i.action, i.status === 'closed' ? t('is_closed') : t('is_open'), i.by, i.closedAt ? C.fmtDT(i.closedAt) : '', i.resolution || '']; })]);
-    add(t('byTier3'), [['Tier 3', t('downtimeMin')], ...Object.keys(sm.byTier3).map(k => [k, sm.byTier3[k]]), [], [t('codesSource', { s: P.DOWNTIME_SOURCE })]]);
+    add(t('byV2'), [['V2', t('downtimeMin')], ...Object.keys(sm.byV2).map(k => [v2Label(k), sm.byV2[k]]), [], [t('oeeTreat'), t('downtimeMin')],
+      ...Object.keys(sm.byOee).map(k => [oeeLabel(k), sm.byOee[k]]), [], [t('codesSource', { s: S.cfgP.codesSource || P.DOWNTIME_SOURCE })]]);
     add(t('activities'), [[t('dateTime'), t('crew'), t('line'), t('activityType'), t('floor'), t('qtyKg'), t('product'), t('description'), t('doneBy')],
       ...sm.acts.map(a => [C.fmtDT(a.t), a.crew, a.lineId ? C.lineName(a.lineId) : '', t('at_' + (ACT.has(a.type) ? a.type : 'other')), a.floor || '', isNum(a.qtyKg) ? a.qtyKg : '',
         a.productId ? C.prodName(a.productId) : '', a.description || '', a.by])]);
@@ -472,7 +479,7 @@ window.ProdUI = function (C) {
   }
   function shiftExcel() {
     const ls = logShift(), range = shiftRange(ls.day, ls.period);
-    const sm = P.shiftSummary(ls.day, ls.period, range, { log: S.shiftLog, jobs: S.jobs, now: now() });
+    const sm = P.shiftSummary(ls.day, ls.period, range, { log: S.shiftLog, jobs: S.jobs, now: now(), codes: codes() });
     window.XLSX.writeFile(shiftWorkbook(ls, sm, range), ls.day + '_' + (ls.period === 'D' ? 'Dia' : 'Noite') + '_Producao-Moagem_Diario-Turno.xlsx');
   }
 
@@ -522,7 +529,10 @@ window.ProdUI = function (C) {
     const nExt = Object.keys(c.extraction).filter(k => isNum(c.extraction[k])).length, nRec = Object.keys(c.recipes).filter(k => P.recipeSet(c.recipes[k])).length;
     return `<section class="card"><h3>${esc(t('prodSettings'))}</h3>
       <p class="sub">${esc(t('prodSettingsSummary', { c: lineIds().map(id => id + ' ' + fmtKg(c.lineTpd[id]) + ' t/d').join(' · '), d: fmtKg(c.dampenerMaxLh), e: nExt, r: nRec, n: C.products().length, b: c.bins.length }))}</p>
-      <button class="btn" data-nav="prodset">${esc(t('editProdSettings'))}</button></section>`;
+      <button class="btn" data-nav="prodset">${esc(t('editProdSettings'))}</button></section>
+      <section class="card"><h3>${esc(t('codesTitle'))}</h3>
+      <p class="sub">${esc(t('codesSummary', { n: codes().filter(c => c.active !== false).length, s: S.cfgP.codesSource || '', pt: codes().filter(c => c.namePt).length, o: codes().filter(c => c.oee).length }))}</p>
+      <button class="btn" data-nav="codes">${esc(t('editCodes'))}</button></section>`;
   }
   function viewProdSet() {
     if (!S.prodDraft) S.prodDraft = JSON.parse(JSON.stringify(S.cfgP));
@@ -581,6 +591,56 @@ window.ProdUI = function (C) {
     C.toast(t('limitsSaved', { n: diff.length })); S.view = 'settings'; C.render(); window.scrollTo(0, 0);
   }
 
+  // ---------- códigos de paragem: editor (autorização) ----------
+  function viewCodes() {
+    const opt = (list, v, lab) => `<option value="">—</option>` + list.map(x => `<option value="${esc(x)}" ${v === x ? 'selected' : ''}>${esc(lab ? lab(x) : x)}</option>`).join('');
+    return `<section class="card"><h2>${esc(t('codesTitle'))}</h2><p class="sub">${esc(t('codesHelp'))}</p>
+      <p class="sub">${esc(t('oeeProposal'))}</p></section>
+      ${codes().map((c, i) => `<details class="card code-ed ${c.active === false ? 'inactive' : ''}"><summary><b>${esc(c.code)}</b> ${esc(cName(c))} <small>· ${esc(v2Label(c.v2))} · ${esc(oeeLabel(c.oee))}${c.active === false ? ' · ' + esc(t('inactive')) : ''}</small></summary>
+        <div class="grid2">
+          <label class="fld">${esc(t('codeName'))} (EN)<input data-cd="${i}|name" value="${esc(c.name)}"></label>
+          <label class="fld">${esc(t('codeNamePt'))}<input data-cd="${i}|namePt" value="${esc(c.namePt || '')}"></label>
+          <label class="fld">V2<select data-cd="${i}|v2">${opt(P.V2_CATS, c.v2)}</select></label>
+          <label class="fld">Tier 3<select data-cd="${i}|tier3">${opt(P.TIER3, c.tier3)}</select></label>
+          <label class="fld">${esc(t('oeeTreat'))}<select data-cd="${i}|oee">${opt(P.OEE_TREAT, c.oee, o => t('oee_' + o))}</select></label>
+          <label class="chk"><input type="checkbox" data-cd="${i}|active" ${c.active !== false ? 'checked' : ''}> ${esc(t('activeCode'))}</label>
+        </div>${c.v1 ? `<p class="sub">V1: ${esc(c.v1)}</p>` : ''}</details>`).join('')}
+      <section class="card"><h3>${esc(t('newCode'))}</h3><div class="grid2">
+        <label class="fld">${esc(t('downtimeCode'))}<input id="nc_code" placeholder="P25"></label>
+        <label class="fld">${esc(t('codeName'))} (EN)<input id="nc_name"></label></div><p class="sub">${esc(t('newCodeHelp'))}</p></section>
+      <section class="card"><label class="fld req">${esc(t('supervisor'))}<input id="cdBy"></label>
+        <label class="fld req">${esc(t('reason'))}<input id="cdReason"></label>
+        <label class="fld req">${esc(t('pin'))}<input type="password" inputmode="numeric" id="cdPin"></label>
+        <button class="btn primary big" data-pact="savecodes">${esc(t('save'))}</button>
+        <button class="btn ghost" data-nav="settings">${esc(t('cancel'))}</button></section>`;
+  }
+  async function saveCodes() {
+    const by = $('#cdBy').value.trim(), reason = $('#cdReason').value.trim();
+    if (!by || !reason) return C.toast(t('needByReason'));
+    const list = JSON.parse(JSON.stringify(codes()));
+    document.querySelectorAll('[data-cd]').forEach(el => {
+      const [i, f] = el.dataset.cd.split('|'); const c = list[Number(i)]; if (!c) return;
+      if (f === 'active') c.active = el.checked;
+      else { const v = el.value.trim(); c[f] = v === '' ? (f === 'name' ? '' : null) : v; }
+    });
+    const nc = $('#nc_code').value.trim().toUpperCase(), nn = $('#nc_name').value.trim();
+    if (nc || nn) list.push({ code: nc, name: nn, namePt: null, v1: null, v2: null, tier3: null, oee: null, active: true });
+    const errs = P.validateCodes(list);
+    if (errs.length) return C.toast(t('limitErrors') + ': ' + errs.join(', '));
+    const n = Object.assign({}, S.cfgP, { downtimeCodes: list });
+    const diff = P.prodConfigDiff(S.cfgP, n);
+    if (!diff.length) return C.toast(t('noChanges'));
+    const r = await C.checkPin($('#cdPin').value);
+    if (!r.ok) return C.toast(C.pinMsg(r));
+    n.codesSource = (P.DOWNTIME_SOURCE) + ' + ' + t('changedBy', { by, d: C.fmtDT(now()).slice(0, 10) });
+    const tms = now();
+    try {
+      await DB.batch(diff.map(x => ({ store: 'prodChanges', op: 'add', obj: Object.assign(base(tms), { t: tms, by, reason }, x) })));
+      await DB.setConfig('cfgP', n);
+    } catch (e) { return C.toast(t('saveFailed')); }
+    S.cfgP = n; await reload(); C.toast(t('limitsSaved', { n: diff.length })); S.view = 'settings'; C.render(); window.scrollTo(0, 0);
+  }
+
   // ---------- início: resumo por linha ----------
   function homeLine(lineId) {
     const j = runningJob(lineId);
@@ -618,6 +678,7 @@ window.ProdUI = function (C) {
       case 'setbin': return binAction('set');
       case 'cancelba': S.binAct = null; keepScroll(); return;
       case 'saveprodset': return saveProdSet();
+      case 'savecodes': return saveCodes();
       case 'authblend': return authorizeBlend();
       case 'removeauth': S.jobForm.offRecipeAuth = null; keepScroll(); return;
       case 'savereading': return saveReading(el.dataset.uid);
@@ -652,5 +713,5 @@ window.ProdUI = function (C) {
     return false;
   }
 
-  return { load, reload, view, viewProdSet, settingsCard, homeLine, onClick, onInput, onChange, CLICK_SEL };
+  return { load, reload, view, viewProdSet, viewCodes, settingsCard, homeLine, onClick, onInput, onChange, CLICK_SEL };
 };
