@@ -15,7 +15,7 @@ L.PARAMS.forEach(p => dyn.push('p_' + p)); L.PHYSICAL.forEach(p => dyn.push('ph_
 L.MILL_TYPES.forEach(m => dyn.push('mill_' + m)); L.FREQS.forEach(f => dyn.push('fr_' + f)); L.defaultProducts().forEach(p => dyn.push('prod_' + p.id));
 ['hold', 'warn', 'ok', 'stopped', 'nodata'].forEach(s => dyn.push('st_' + s)); ['open', 'action', 'closed'].forEach(s => dyn.push('hs_' + s)); ['D', 'N'].forEach(s => dyn.push('shift_' + s));
 ['home', 'sample', 'holds', 'prod', 'records', 'report', 'settings'].forEach(s => dyn.push('nav_' + s));
-['jobs', 'log', 'bins'].forEach(s => dyn.push('ptab_' + s)); P.JOB_STATUS.forEach(s => dyn.push('js_' + s));
+['jobs', 'grain', 'log', 'bins'].forEach(s => dyn.push('ptab_' + s)); P.JOB_STATUS.forEach(s => dyn.push('js_' + s));
 P.ACT_TYPES.forEach(c => dyn.push('at_' + c)); P.SILO_GRADES.concat(['none']).forEach(g => dyn.push('g_' + g));
 // códigos de erro/aviso: extrair de js/prod.js
 const src = fs.readFileSync('js/prod.js', 'utf8');
@@ -25,7 +25,7 @@ for (const m of src.matchAll(/W\.push\(\{ code: '([a-z_]+)'/g)) dyn.push('jw_' +
 for (const m of src.matchAll(/why: '([a-z_]+)'/g)) if (!m[1].startsWith('bin_')) dyn.push('why_' + m[1]);
 for (const m of src.matchAll(/field: '([a-zA-Z]+)'/g)) dyn.push('f_' + m[1]);
 ['P', 'A', 'O', 'X'].forEach(g => dyn.push('cg_' + g)); P.OEE_TREAT.forEach(o => dyn.push('oee_' + o));
-for (const m of src.matchAll(/e\.push\('([a-zA-Z]+)'\)/g)) if (!/^(bins|dampenerMaxLh|empty)$/.test(m[1])) dyn.push('f_' + m[1]);
+for (const m of src.matchAll(/e\.push\('([a-zA-Z]+)'\)/g)) if (!/^(bins|dampenerMaxLh|empty|dirtyBins|temperedBins|grainSilos|dupIds)$/.test(m[1])) dyn.push('f_' + m[1]);
 const missDyn = [...new Set(dyn)].filter(k => !pk.includes(k));
 if (missDyn.length) problems.push('missing dyn ' + missDyn);
 if (problems.length) { console.error(problems.join('\n')); process.exit(1); }

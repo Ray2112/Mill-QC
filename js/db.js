@@ -1,12 +1,12 @@
 /* IndexedDB — base de dados própria da app de CQ (separada da app de Silos).
- * v2 (app 1.1.0): lojas de produção com chave 'uid' (texto, único por dispositivo) para sincronização futura. */
+ * v3 (app 1.3.0): + grainMoves (transferências para silos de milho sujo). v2 (app 1.1.0): lojas de produção com chave 'uid' (texto, único por dispositivo) para sincronização futura. */
 (function (root) {
   'use strict';
   const DB_NAME = 'moagem-cq';
-  const DB_VERSION = 2;
-  const FORMAT = 2;
+  const DB_VERSION = 3;
+  const FORMAT = 3;
   const STORES = ['samples', 'holds', 'alerts', 'limitChanges', 'reports'];
-  const PSTORES = ['jobs', 'binEvents', 'shiftLog', 'siloSnapshots', 'prodChanges'];   // chave: uid
+  const PSTORES = ['jobs', 'binEvents', 'shiftLog', 'siloSnapshots', 'prodChanges', 'grainMoves'];   // chave: uid
   const ALL = STORES.concat(PSTORES);
   const LOCAL_KEYS = ['pin', 'pinLock', 'deviceId'];               // ficam só neste dispositivo
   let dbp = null;
