@@ -197,7 +197,7 @@ window.ProdUI = function (C) {
     const qc = j.status === 'running' ? qcForJob(j) : '';
     const closing = S.closeJob === j.uid;
     return `<div class="hold job">
-      <div class="row between"><b>${esc(C.lineName(j.lineId))} · ${esc(C.prodName(j.productId))}</b><span class="status ${STATUS_CLS[st]}">${esc(t('js_' + st))}</span></div>
+      <div class="row between"><b>${esc(C.lineName(j.lineId))} · ${esc(prodNames(j))}</b><span class="status ${STATUS_CLS[st]}">${esc(t('js_' + st))}</span></div>
       <small>${esc(t('startedBy', { d: C.fmtDT(j.startedAt), by: j.leader, crew: j.crew || '—' }))}${j.closedAt ? ' · ' + esc(t('closedBy', { d: C.fmtDT(j.closedAt), by: j.closedBy })) : ''}</small>
       <div class="kv"><span>${esc(t('grainToMill'))}</span><b>${fmtKg(j.grainKg)} kg</b></div>
       <div class="kv"><span>${esc(t('fromBins'))}${j.mode === 'blend' ? ' · ' + esc(t('mode_blend')) : ''}</span><b>${allocText(j.alloc)}</b></div>
@@ -209,7 +209,7 @@ window.ProdUI = function (C) {
       <div class="kv"><span>${esc(t('toBins'))}</span><b>${esc((j.bins || []).join(', '))}</b></div>
       <div class="kv"><span>${esc(t('moistureFromTo'))}</span><b>${esc(C.fmtNum(j.m0))} → ${esc(C.fmtNum(j.m1))} % · ${esc(t('impurities'))} ${esc(C.fmtNum(j.impurities))} %</b></div>
       <div class="kv"><span>${esc(t('water'))}</span><b>${fmtKg(j.waterLh)} L/h · ${esc(t('total'))} ${fmtKg(j.waterL)} L</b></div>
-      <div class="kv"><span>${esc(t('expectedProduct'))}</span><b>${isNum(j.expectedKg) ? fmtKg(j.expectedKg) + ' kg (' + esc(C.fmtNum(j.extraction)) + ' %)' : esc(t('extractionNotSet'))}</b></div>
+      ${P.jobOutputs(j).map(o => `<div class="kv"><span>${esc(t('expectedProduct'))}${P.jobOutputs(j).length > 1 ? ' · ' + esc(C.prodName(o.productId)) : ''}</span><b>${isNum(o.expectedKg) ? fmtKg(o.expectedKg) + ' kg (' + esc(C.fmtNum(o.extraction)) + ' %)' : esc(t('extractionNotSet'))}${P.jobOutputs(j).length > 1 ? ' → ' + esc((o.bins || []).join(', ')) : ''}</b></div>`).join('')}
       ${j.status === 'done' && isNum(j.actualKg) ? `<div class="kv"><span>${esc(t('actualGrain'))}</span><b>${fmtKg(j.actualKg)} kg</b></div>` : ''}
       ${j.closeNote ? `<p><small>${esc(j.closeNote)}</small></p>` : ''}
       ${readingsBlock(j)}
@@ -272,8 +272,30 @@ window.ProdUI = function (C) {
   // ----- formulário da ordem -----
   function newJobForm() {
     const line = S.cfg.lines.find(l => !runningJob(l.id));
-    S.jobForm = { productId: '', lineId: line ? line.id : '', grainKg: '', mode: 'seq', sources: [], blend: {}, tempered: [], bins: [], m0: '', impurities: '', m1: '', feedTph: '',
-      recipe: { colours: [], grades: [] }, targetExtraction: '', leader: defLeader() };
+    S.jobForm = { lineId: line ? line.id : '', grainKg: '', mode: 'seq', sources: [], blend: {}, tempered: [], m0: '', impurities: '', m1: '', feedTph: '',
+      outputs: [newOutput()], recipe: { colours: [], grades: [] }, leader: defLeader() };
+  }
+  const prodNames = j => P.jobProducts(j).map(C.prodName).join(' + ') || '—';
+  const newOutput = () => ({ productId: '', targetExtraction: '', bins: [] });
+  // Bloco de um produto da ordem (v1.5.0): produto, extracção alvo e silos de produto
+  function outputBlock(f, o, i, lineBins) {
+    const n = f.outputs.length;
+    const taken = {}; f.outputs.forEach((x, k) => { if (k !== i) x.bins.forEach(b => { taken[b] = x.productId || '?'; }); });
+    const binRows = lineBins.map(b => {
+      const st = P.binState(b.id, S.binEvents);
+      const on = o.bins.indexOf(b.id) >= 0, other = taken[b.id];
+      const clash = st.productId && o.productId && st.productId !== o.productId;
+      return `<button class="pick ${on ? 'on' : ''}${other ? ' dim' : ''}" data-jobin="${i}|${esc(b.id)}"><b>${esc(b.id)}</b><small>${esc(t('fedBy'))} ${esc(b.lines.join('/'))}${isNum(b.capT) ? ' · ' + fmtKg(b.capT) + ' t' : ''}</small>
+        ${other ? `<span class="chip d-record">${esc(t('binTakenBy', { p: other === '?' ? t('productN', { n: f.outputs.findIndex(x => x.bins.indexOf(b.id) >= 0) + 1 }) : C.prodName(other) }))}</span>`
+          : `<span class="chip ${clash ? 'd-reject' : st.productId ? 'd-warn' : 'd-accept'}">${esc(st.productId ? C.prodName(st.productId) : t('binEmpty'))}</span>`}</button>`;
+    }).join('');
+    return `<div class="param out">
+      <div class="row between"><b>${esc(t('productN', { n: i + 1 }))}</b>${n > 1 ? `<button class="btn ghost small" data-joutdel="${i}">${esc(t('remove'))}</button>` : ''}</div>
+      <div class="grid2">
+        <label class="fld req">${esc(t('product'))}<select data-jo="${i}|productId"><option value="">—</option>${C.products().map(p => `<option value="${esc(p.id)}" ${o.productId === p.id ? 'selected' : ''}>${esc(C.prodName(p.id))}</option>`).join('')}</select></label>
+        <label class="fld req">${esc(t('extraction'))} (%)<input inputmode="decimal" data-joi="${i}|targetExtraction" value="${esc(o.targetExtraction)}"></label>
+      </div>
+      <div class="sub req">${esc(t('toBins'))}</div>${f.lineId ? '' : `<p class="sub">${esc(t('pickLineFirst'))}</p>`}<div class="picks">${binRows}</div></div>`;
   }
   const ctxFor = () => ({ cfgP: S.cfgP, millType: S.cfg.millType, moves: S.moves, jobs: S.jobs, binEvents: S.binEvents, now: now(), shiftStart: L.shiftOf(now()).start });
   function jobFormView() {
@@ -294,27 +316,23 @@ window.ProdUI = function (C) {
     const tempRows = (S.cfgP.temperedBins || []).filter(b => !f.lineId || b.lines.indexOf(f.lineId) >= 0).map(b =>
       `<button class="pick ${f.tempered.indexOf(b.id) >= 0 ? 'on' : ''}" data-jtemp="${esc(b.id)}"><b>${esc(b.id)}</b><small>${esc(t('fedBy'))} ${esc(b.lines.join('/'))}${isNum(b.capT) ? ' · ' + fmtKg(b.capT) + ' t' : ''}</small></button>`).join('');
     const lineBins = S.cfgP.bins.filter(b => !f.lineId || b.lines.indexOf(f.lineId) >= 0);
-    const binRows = lineBins.map(b => {
-      const st = P.binState(b.id, S.binEvents);
-      const on = f.bins.indexOf(b.id) >= 0;
-      const clash = st.productId && f.productId && st.productId !== f.productId;
-      return `<button class="pick ${on ? 'on' : ''}" data-jbin="${esc(b.id)}"><b>${esc(b.id)}</b><small>${esc(t('fedBy'))} ${esc(b.lines.join('/'))}${isNum(b.capT) ? ' · ' + fmtKg(b.capT) + ' t' : ''}</small>
-        <span class="chip ${clash ? 'd-reject' : st.productId ? 'd-warn' : 'd-accept'}">${esc(st.productId ? C.prodName(st.productId) : t('binEmpty'))}</span></button>`;
-    }).join('');
     return `<section class="card"><h2>${esc(t('newJob'))}</h2>
       <div class="grid2">
-        <label class="fld req">${esc(t('product'))}<select data-jf="productId"><option value="">—</option>${C.products().map(p => `<option value="${esc(p.id)}" ${f.productId === p.id ? 'selected' : ''}>${esc(C.prodName(p.id))}</option>`).join('')}</select></label>
         <label class="fld req">${esc(t('line'))}<select data-jf="lineId"><option value="">—</option>${S.cfg.lines.map(l => `<option value="${esc(l.id)}" ${f.lineId === l.id ? 'selected' : ''}>${esc(l.name)}${runningJob(l.id) ? ' (' + esc(t('busy')) + ')' : ''}</option>`).join('')}</select></label>
         <label class="fld req">${esc(t('grainToMill'))} (kg)<input inputmode="decimal" data-jfi="grainKg" value="${esc(f.grainKg)}"></label>
         <label class="fld">${esc(t('feedRate'))} (t/h)<input inputmode="decimal" data-jfi="feedTph" value="${esc(f.feedTph)}" placeholder="${esc(tphDef ? C.fmtNum(Math.round(tphDef * 100) / 100) : '')}"></label>
       </div>
       <p class="sub">${esc(t('feedRateHint'))}</p>
     </section>
+    <section class="card"><h3>${esc(t('jobProducts'))}</h3><p class="sub">${esc(t('jobProductsHelp'))}</p>
+      ${f.outputs.map((o, i) => outputBlock(f, o, i, lineBins)).join('')}
+      <button class="btn small" data-pact="addoutput">＋ ${esc(t('addProduct'))}</button>
+      <p class="sub">${esc(t('extractionHelp'))}</p>
+      <p class="sub">${esc(t('binSourceNote', { s: S.cfgP.binSource || '' }))}</p></section>
     <section class="card"><h3>${esc(t('jobRecipe'))}</h3><p class="sub">${esc(t('jobRecipeHelp'))}</p>
       <div class="sub req">${esc(t('recipeColours'))}</div><div class="picks">${P.COLOURS.map(c => `<button class="pick ${recipe.colours.indexOf(c) >= 0 ? 'on' : ''}" data-jrc="${esc(c)}"><b>${esc(c)}</b></button>`).join('')}</div>
       <div class="sub req">${esc(t('recipeGrades'))}</div><div class="picks">${P.SILO_GRADES.map(g => `<button class="pick ${recipe.grades.indexOf(g) >= 0 ? 'on' : ''}" data-jrg="${esc(g)}"><b>${esc(t('g_' + g))}</b></button>`).join('')}</div>
-      <div class="grid2"><label class="fld req">${esc(t('extraction'))} (%)<input inputmode="decimal" data-jfi="targetExtraction" value="${esc(f.targetExtraction)}"></label></div>
-      <p class="sub">${esc(t('extractionHelp'))}</p></section>
+      </section>
     <section class="card"><h3>${esc(t('rawMaterial'))}</h3>
       <div class="seg mode"><button data-jmode="seq" class="${f.mode !== 'blend' ? 'on ok' : ''}">${esc(t('mode_seq'))}</button><button data-jmode="blend" class="${f.mode === 'blend' ? 'on ok' : ''}">${esc(t('mode_blend'))}</button></div>
       <p class="sub">${esc(t(f.mode === 'blend' ? 'binsBlend' : 'binsOrder'))}</p>${f.lineId ? '' : `<p class="sub">${esc(t('pickLineFirst'))}</p>`}<div class="picks">${srcRows}</div>
@@ -328,8 +346,6 @@ window.ProdUI = function (C) {
       </div>
       ${f.mode === 'blend' ? `<p class="sub">${esc(t('blendMoistNote'))}</p>` : ''}
       <p class="sub">${esc(t('waterHint'))}</p></section>
-    <section class="card"><h3>${esc(t('toBins'))}</h3>${f.lineId ? '' : `<p class="sub">${esc(t('pickLineFirst'))}</p>`}<div class="picks">${binRows}</div>
-      <p class="sub">${esc(t('binSourceNote', { s: S.cfgP.binSource || '' }))}</p></section>
     <section class="card">
       <label class="fld req">${esc(t('shiftLeader'))}${leaderField('data-jfl="leader"', f.leader)}</label>
       ${!P.leaderNames(S.cfgP).length ? `<p class="sub">${esc(t('leadersNotSet'))}</p>` : ''}
@@ -346,6 +362,10 @@ window.ProdUI = function (C) {
       </tbody></table></div>`;
   }
   function errText(e) {
+    const s = errText0(e);
+    return e.productId ? C.prodName(e.productId) + ': ' + s : s;
+  }
+  function errText0(e) {
     const v = Object.assign({}, e);
     if (e.field) v.field = t('f_' + e.field);
     if (e.current) v.current = C.prodName(e.current);
@@ -364,7 +384,8 @@ window.ProdUI = function (C) {
     if (isNum(c.waterL)) rows.push(`<div class="kv"><span>${esc(t('waterTotal'))}</span><b>${fmtKg(c.waterL)} L</b></div>`);
     if (isNum(c.waterLh)) rows.push(`<div class="kv"><span>${esc(t('waterRate'))}</span><b class="${isNum(c.dampenerMaxLh) && c.waterLh > c.dampenerMaxLh ? 'txt-reject' : ''}">${fmtKg(c.waterLh)} L/h <small>(${esc(t('max'))} ${fmtKg(c.dampenerMaxLh)})</small></b></div>`);
     if (isNum(c.hours)) rows.push(`<div class="kv"><span>${esc(t('duration'))}</span><b>${esc(C.fmtNum(c.hours))} h @ ${esc(C.fmtNum(c.feedTph))} t/h</b></div>`);
-    if (isNum(c.expectedKg)) rows.push(`<div class="kv"><span>${esc(t('expectedProduct'))}</span><b>${fmtKg(c.expectedKg)} kg (${esc(C.fmtNum(c.extraction))} %)</b></div>`);
+    (c.outputs || []).forEach(o => { if (o.productId && isNum(o.expectedKg)) rows.push(`<div class="kv"><span>${esc(C.prodName(o.productId))}</span><b>${fmtKg(o.expectedKg)} kg (${esc(C.fmtNum(o.extraction))} %) → ${esc(o.bins.join(', ') || '—')}</b></div>`); });
+    if (isNum(c.expectedKg) && (c.outputs || []).length > 1) rows.push(`<div class="kv"><span>${esc(t('expectedProduct'))} · ${esc(t('total'))}</span><b>${fmtKg(c.expectedKg)} kg (${esc(C.fmtNum(c.extraction))} %)</b></div>`);
     if (c.alloc && c.alloc.length) rows.push(`<div class="kv"><span>${esc(t('fromBins'))}</span><b>${allocText(c.alloc)}</b></div>`);
     return `${rows.join('')}
       ${r.errors.length ? `<div class="dec d-reject"><b>${esc(t('jobBlocked'))}</b>${r.errors.map(e => `<div class="li">• ${esc(errText(e))}</div>`).join('')}</div>` : `<div class="dec d-accept"><b>${esc(t('jobOk'))}</b></div>`}
@@ -377,27 +398,30 @@ window.ProdUI = function (C) {
     const r = P.validateJob(f, ctxFor());
     if (r.errors.length) { keepScroll(); return C.toast(t('jobBlocked')); }
     const tms = now();
+    // produtos da ordem: extracção (número e texto tal como escrito), produto esperado, silos
+    const outs = r.calc.outputs.map((o, i) => Object.assign({}, o, { extractionRaw: String(f.outputs[i].targetExtraction) }));
     const sourceComps = {};
     f.sources.forEach(id => { sourceComps[id] = dirtyState(id).comps; });   // conteúdo de cada silo de moagem no arranque (rastreabilidade)
     const job = Object.assign(base(tms), {
-      status: 'running', startedAt: tms, millType: S.cfg.millType, productId: f.productId, lineId: f.lineId,
+      status: 'running', startedAt: tms, millType: S.cfg.millType, productId: outs[0].productId, lineId: f.lineId,
       grainKg: r.values.grainKg, mode: f.mode === 'blend' ? 'blend' : 'seq', sources: f.sources.slice(), sourceComps, alloc: r.calc.alloc,
-      tempered: f.tempered.slice(), bins: f.bins.slice(),
+      tempered: f.tempered.slice(), bins: [].concat(...outs.map(o => o.bins)), outputs: outs,
       blendInputs: f.mode === 'blend' ? JSON.parse(JSON.stringify(f.blend)) : null,
       offRecipe: r.calc.offRecipe,
       m0: r.values.m0, m1: r.values.m1, impurities: r.values.impurities, feedTph: r.calc.feedTph,
       waterL: r.calc.waterL, waterLh: r.calc.waterLh, expectedKg: isNum(r.calc.expectedKg) ? r.calc.expectedKg : null,
-      extraction: r.calc.extraction, extractionRaw: String(f.targetExtraction), dampenerMaxLh: P.dampenerMax(S.cfgP, f.lineId),
+      extraction: r.calc.extraction, dampenerMaxLh: P.dampenerMax(S.cfgP, f.lineId),
       recipe: { colours: f.recipe.colours.slice(), grades: f.recipe.grades.slice(), source: 'job' },
-      warnings: r.warnings.map(w => w.code + (w.bin ? ':' + w.bin : '')),
+      warnings: r.warnings.map(w => w.code + (w.bin ? ':' + w.bin : '') + (w.productId ? '@' + w.productId : '')),
       leader: String(f.leader).trim(), leaderCrew: leaderCrewOf(String(f.leader).trim())
     });
     job.readings = [{ t: tms, crew: S.crew, period: job.period, prodDay: job.prodDay, m0: job.m0, waterLh: job.waterLh, by: job.leader, kind: 'start' }];
-    const ops = [{ store: 'jobs', op: 'add', obj: job }].concat(f.bins.map((b, i) => ({ store: 'binEvents', op: 'add',
-      obj: Object.assign(base(tms), { binId: b, type: 'FILL', productId: f.productId, jobUid: job.uid, lineId: f.lineId, t: tms, seq: i, by: job.leader }) })));
+    let seq = 0;
+    const ops = [{ store: 'jobs', op: 'add', obj: job }].concat(...outs.map(o => o.bins.map(b => ({ store: 'binEvents', op: 'add',
+      obj: Object.assign(base(tms), { binId: b, type: 'FILL', productId: o.productId, jobUid: job.uid, lineId: f.lineId, t: tms, seq: seq++, by: job.leader }) }))));
     try { await DB.batch(ops); } catch (e) { return C.toast(t('saveFailed')); }
     // Integração com o CQ: a linha passa a produzir este produto (controlos horários contam a partir daqui)
-    const ls = Object.assign({}, S.lineState, { [f.lineId]: { productId: f.productId, running: true, since: tms } });
+    const ls = Object.assign({}, S.lineState, { [f.lineId]: { productId: outs[0].productId, products: outs.map(o => o.productId), running: true, since: tms } });
     S.lineState = ls; await DB.setConfig('lineState', ls);
     S.operator = job.leader; await DB.setConfig('operator', S.operator);
     S.jobForm = null; await reload(); C.toast(t('jobStarted')); C.render(); window.scrollTo(0, 0);
@@ -553,7 +577,7 @@ window.ProdUI = function (C) {
   }
   function shiftText(ls, sm) {
     const lines = [t('waShiftTitle', { d: ls.day, s: t('shift_' + ls.period) })];
-    sm.jobs.forEach(j => lines.push('▶ ' + C.lineName(j.lineId) + ' ' + C.prodName(j.productId) + ': ' + fmtKg(j.grainKg) + ' kg · ' + t('js_' + (JOB_ST[j.status] ? j.status : 'running'))));
+    sm.jobs.forEach(j => lines.push('▶ ' + C.lineName(j.lineId) + ' ' + prodNames(j) + ': ' + fmtKg(j.grainKg) + ' kg · ' + t('js_' + (JOB_ST[j.status] ? j.status : 'running'))));
     lines.push(t('issues') + ': ' + sm.issues.length + ' (' + t('is_open') + ' ' + sm.openIssues + ') · ' + t('downtimeMin') + ': ' + sm.downtimeMin + (Object.keys(sm.byV2).length ? ' (' + Object.keys(sm.byV2).map(k => v2Label(k) + ' ' + sm.byV2[k]).join(', ') + ')' : ''));
     sm.issues.forEach(i => lines.push('• ' + C.fmtTime(i.t) + ' ' + (i.code ? codeLabel(i.code, i.codeInfo) : t('noStopCode')) + (i.lineId ? ' ' + i.lineId : '') + ': ' + i.description + (isNum(i.downtimeMin) ? ' (' + i.downtimeMin + ' min)' : '')));
     if (sm.acts.length) lines.push(t('activities') + ': ' + sm.acts.map(a => t('at_' + (ACT.has(a.type) ? a.type : 'other')) + (a.floor ? ' ' + a.floor : '')).join('; '));
@@ -564,12 +588,13 @@ window.ProdUI = function (C) {
     const add = (name, rows) => XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), name.slice(0, 31));
     add(t('x_jobs'), [[t('waShiftTitle', { d: ls.day, s: t('shift_' + ls.period) })], [],
       [t('line'), t('product'), t('status'), t('startedAt'), t('closedAt'), t('shiftLeader'), t('crew'), t('grainToMill') + ' (kg)', t('fromBins'), t('binContents'), t('temperedBin'), t('toBins'),
-        t('m0'), t('impurities'), t('m1'), t('feedRate') + ' (t/h)', t('waterRate') + ' (L/h)', t('waterTotal') + ' (L)', t('jobRecipe'), t('x_offRecipe'), t('extraction') + ' %', t('expectedProduct') + ' (kg)', t('actualGrain') + ' (kg)', t('notes')],
-      ...sm.jobs.map(j => [C.lineName(j.lineId), C.prodName(j.productId), t('js_' + (JOB_ST[j.status] ? j.status : 'running')), C.fmtDT(j.startedAt), j.closedAt ? C.fmtDT(j.closedAt) : '',
+        t('m0'), t('impurities'), t('m1'), t('feedRate') + ' (t/h)', t('waterRate') + ' (L/h)', t('waterTotal') + ' (L)', t('jobRecipe'), t('x_offRecipe'), t('x_outputs'), t('extraction') + ' % (' + t('total') + ')', t('expectedProduct') + ' (kg, ' + t('total') + ')', t('actualGrain') + ' (kg)', t('notes')],
+      ...sm.jobs.map(j => [C.lineName(j.lineId), prodNames(j), t('js_' + (JOB_ST[j.status] ? j.status : 'running')), C.fmtDT(j.startedAt), j.closedAt ? C.fmtDT(j.closedAt) : '',
         j.leader, j.crew, j.grainKg, (j.alloc || []).map(a => (a.bin || a.silo) + '=' + a.kg).join('; '),
         j.sourceComps ? Object.keys(j.sourceComps).map(k => k + ': ' + compText(j.sourceComps[k])).join(' | ') : '', (j.tempered || []).join(', '), (j.bins || []).join(', '), j.m0, j.impurities, j.m1, j.feedTph, j.waterLh, j.waterL,
         j.recipe && P.recipeSet(j.recipe) ? j.recipe.colours.join('/') + ' · ' + j.recipe.grades.join('/') : '',
         (j.offRecipe || []).map(x => x.bin || x.silo).join(', ') + (j.offRecipeAuth ? ' (' + j.offRecipeAuth.by + ': ' + j.offRecipeAuth.reason + ')' : ''),
+        P.jobOutputs(j).map(o => C.prodName(o.productId) + ' ' + (isNum(o.extraction) ? o.extraction + ' %' : '—') + ' = ' + (isNum(o.expectedKg) ? o.expectedKg + ' kg' : '—') + ' → ' + (o.bins || []).join('/')).join(' | '),
         isNum(j.extraction) ? j.extraction : '', isNum(j.expectedKg) ? j.expectedKg : '', isNum(j.actualKg) ? j.actualKg : '', j.closeNote || ''])]);
     const mvs = (S.moves || []).filter(m => m.t >= range[0] && m.t < range[1]).sort((a, b) => a.t - b.t);
     add(t('x_moves'), [[t('dateTime'), t('crew'), t('type'), t('dirtyBin'), t('silo'), 'kg', t('colour'), t('grade'), t('name')],
@@ -578,7 +603,7 @@ window.ProdUI = function (C) {
     add(t('dirtyBins'), [[t('dirtyBin'), t('fedBy'), t('capacityT'), 'kg', t('binContents')],
       ...(S.cfgP.dirtyBins || []).map(b => { const st = dirtyState(b.id); return [b.id, b.lines.join('/'), isNum(b.capT) ? b.capT : '', st.kg, compText(st.comps)]; })]);
     const rds = [];
-    (S.jobs || []).forEach(j => (j.readings || []).forEach(r => { if (r.t >= range[0] && r.t < range[1]) rds.push([C.fmtDT(r.t), r.crew, C.lineName(j.lineId), C.prodName(j.productId), r.m0, j.m1, r.waterLh, r.over ? t('overDampener') : '', r.by, r.kind === 'start' ? t('atStart') : '']); }));
+    (S.jobs || []).forEach(j => (j.readings || []).forEach(r => { if (r.t >= range[0] && r.t < range[1]) rds.push([C.fmtDT(r.t), r.crew, C.lineName(j.lineId), prodNames(j), r.m0, j.m1, r.waterLh, r.over ? t('overDampener') : '', r.by, r.kind === 'start' ? t('atStart') : '']); }));
     add(t('maizeMoisture'), [[t('dateTime'), t('crew'), t('line'), t('product'), t('maizeMoistureCol') + ' %', t('m1') + ' %', t('waterRate') + ' (L/h)', '', t('name'), ''], ...rds]);
     add(t('issues'), [[t('dateTime'), t('crew'), t('line'), t('downtimeCode'), t('codeName'), t('codeNamePt'), 'V1', 'V2', 'Tier 3', t('oeeTreat'), t('equipment'), t('issueDesc'), t('downtimeMin'), t('actionCol'), t('status'), t('reportedBy'), t('closedAt'), t('resolution')],
       ...sm.issues.map(i => { const d = i.codeInfo || P.findCode(i.code, codes()) || {}; return [C.fmtDT(i.t), i.crew, i.lineId ? C.lineName(i.lineId) : '', i.code || '', d.name || '', d.namePt || '', d.v1 || '', d.v2 || '', d.tier3 || '', d.oee ? t('oee_' + d.oee) : '', i.equipment, i.description,
@@ -761,16 +786,26 @@ window.ProdUI = function (C) {
     const j = runningJob(lineId);
     if (!j) return '';
     const rs = (j.readings || []), lw = rs.length ? rs[rs.length - 1].waterLh : j.waterLh;
-    return `<div class="banner b-info" data-nav="prod">▶ ${esc(t('jobOnLine', { p: C.prodName(j.productId), kg: fmtKg(j.grainKg), w: fmtKg(lw), h: C.fmtTime(j.startedAt) }))}</div>
+    return `<div class="banner b-info" data-nav="prod">▶ ${esc(t('jobOnLine', { p: prodNames(j), kg: fmtKg(j.grainKg), w: fmtKg(lw), h: C.fmtTime(j.startedAt) }))}</div>
       ${P.needsShiftReading(j, L.shiftOf(now()).start) ? `<div class="banner b-warn" data-nav="prod">${esc(t('needReading'))}</div>` : ''}`;
   }
 
   // ---------- eventos ----------
-  const CLICK_SEL = '[data-ptab],[data-pact],[data-closejob],[data-jsrc],[data-jrc],[data-jrg],[data-jtemp],[data-trsilo],[data-emptydirty],[data-jbin],[data-jmode],[data-logact],[data-binact]';
+  const CLICK_SEL = '[data-ptab],[data-pact],[data-closejob],[data-jsrc],[data-jrc],[data-jrg],[data-jobin],[data-joutdel],[data-jtemp],[data-trsilo],[data-emptydirty],[data-jmode],[data-logact],[data-binact]';
   async function onClick(el) {
     if (el.dataset.ptab) { S.prodTab = el.dataset.ptab; C.render(); return; }
     if (el.dataset.closejob) { S.closeJob = el.dataset.closejob; keepScroll(); return; }
     if (el.dataset.jsrc) { const f = S.jobForm, i = f.sources.indexOf(el.dataset.jsrc); if (i >= 0) { f.sources.splice(i, 1); delete f.blend[el.dataset.jsrc]; } else f.sources.push(el.dataset.jsrc); keepScroll(); return; }
+    if (el.dataset.jobin) {
+      const [i, id] = el.dataset.jobin.split('|'), f = S.jobForm, o = f.outputs[+i];
+      if (!o) return;
+      const k = o.bins.indexOf(id);
+      if (k >= 0) o.bins.splice(k, 1);
+      else if (f.outputs.some((x, n) => n !== +i && x.bins.indexOf(id) >= 0)) return C.toast(t('binTaken', { bin: id }));
+      else o.bins.push(id);
+      keepScroll(); return;
+    }
+    if (el.dataset.joutdel !== undefined) { const f = S.jobForm; if (f.outputs.length > 1) f.outputs.splice(+el.dataset.joutdel, 1); keepScroll(); return; }
     if (el.dataset.jrc || el.dataset.jrg) {
       const list = el.dataset.jrc ? S.jobForm.recipe.colours : S.jobForm.recipe.grades, v = el.dataset.jrc || el.dataset.jrg;
       const i = list.indexOf(v); if (i >= 0) list.splice(i, 1); else list.push(v); keepScroll(); return;
@@ -779,11 +814,11 @@ window.ProdUI = function (C) {
     if (el.dataset.trsilo) { const f = S.trForm, i = f.silos.indexOf(el.dataset.trsilo); if (i >= 0) f.silos.splice(i, 1); else f.silos.push(el.dataset.trsilo); f.silosConfirmed = false; keepScroll(); return; }
     if (el.dataset.emptydirty) { S.emptyBin = el.dataset.emptydirty; keepScroll(); return; }
     if (el.dataset.jmode) { S.jobForm.mode = el.dataset.jmode === 'blend' ? 'blend' : 'seq'; keepScroll(); return; }
-    if (el.dataset.jbin) { const f = S.jobForm, i = f.bins.indexOf(el.dataset.jbin); if (i >= 0) f.bins.splice(i, 1); else f.bins.push(el.dataset.jbin); keepScroll(); return; }
     if (el.dataset.logact) { S.logAct = { uid: el.dataset.uid, mode: el.dataset.logact === 'close' ? 'close' : 'void' }; keepScroll(); return; }
     if (el.dataset.binact) { S.binAct = { id: el.dataset.bin, mode: el.dataset.binact === 'set' ? 'set' : 'empty' }; keepScroll(); return; }
     switch (el.dataset.pact) {
       case 'newjob': newJobForm(); keepScroll(); return;
+      case 'addoutput': S.jobForm.outputs.push(newOutput()); keepScroll(); return;
       case 'newtransfer': newTransferForm(); keepScroll(); return;
       case 'canceltransfer': S.trForm = null; keepScroll(); return;
       case 'savetransfer': return saveTransfer();
@@ -822,17 +857,19 @@ window.ProdUI = function (C) {
     }
     if (el.dataset.jfl && S.jobForm && el.tagName === 'INPUT') { S.jobForm.leader = el.value; const b = $('#jobCheck'); if (b) b.innerHTML = jobCheckHtml(); return true; }
     if (el.dataset.tri && S.trForm) { S.trForm[el.dataset.tri] = el.value; const b = $('#trCheck'); if (b) b.innerHTML = trCheckHtml(); return true; }
+    if (el.dataset.joi && S.jobForm) { const [i, k] = el.dataset.joi.split('|'); if (S.jobForm.outputs[+i]) S.jobForm.outputs[+i][k] = el.value; const b = $('#jobCheck'); if (b) b.innerHTML = jobCheckHtml(); return true; }
     if (el.dataset.jfi && S.jobForm) { S.jobForm[el.dataset.jfi] = el.value; const b = $('#jobCheck'); if (b) b.innerHTML = jobCheckHtml(); return true; }
     if (el.dataset.lf && S.logForm && el.tagName !== 'SELECT') { S.logForm[el.dataset.lf] = el.value; return true; }
     return false;
   }
   function onChange(el) {
+    if (el.dataset.jo && S.jobForm) { const [i, k] = el.dataset.jo.split('|'); if (S.jobForm.outputs[+i]) S.jobForm.outputs[+i][k] = el.value; keepScroll(); return true; }
     if (el.dataset.jf && S.jobForm) {
       const k = el.dataset.jf;
       S.jobForm[k] = el.type === 'checkbox' ? el.checked : el.value;
       if (k === 'lineId') {
         const keep = (list, id) => { const b = list.find(x => x.id === id); return b && b.lines.indexOf(el.value) >= 0; };
-        S.jobForm.bins = S.jobForm.bins.filter(b => keep(S.cfgP.bins, b));
+        S.jobForm.outputs.forEach(o => { o.bins = o.bins.filter(b => keep(S.cfgP.bins, b)); });
         S.jobForm.tempered = S.jobForm.tempered.filter(b => keep(S.cfgP.temperedBins, b));
         S.jobForm.sources = S.jobForm.sources.filter(b => keep(S.cfgP.dirtyBins, b));
       }

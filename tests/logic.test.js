@@ -150,20 +150,42 @@ t('retenção: abre, acção, re-amostra rejeitada reabre, boa fecha', () => {
   assert.strictEqual(h.status, 'open'); assert.deepStrictEqual(h.reasons, ['moisture']);
   assert.throws(() => L.addHoldAction(h, { at: 2000, by: '', text: 'x' }));
   // amostra boa SEM acção não fecha
-  const good = Object.assign({ id: 2, lineId: 'C', t: 1500 }, ev('super', { moisture: '13' }));
+  const good = Object.assign({ id: 2, lineId: 'C', productId: 'super', t: 1500 }, ev('super', { moisture: '13' }));
   assert.strictEqual(L.holdAfterSample(h, good).status, 'open');
   h = L.addHoldAction(h, { at: 2000, by: 'Sup', text: 'Ajustar condicionamento' });
   assert.strictEqual(h.status, 'action');
-  const bad = Object.assign({ id: 3, lineId: 'C', t: 2500 }, ev('super', { moisture: '14,2' }));
+  const bad = Object.assign({ id: 3, lineId: 'C', productId: 'super', t: 2500 }, ev('super', { moisture: '14,2' }));
   h = L.holdAfterSample(h, bad); assert.strictEqual(h.status, 'open');
   h = L.addHoldAction(h, { at: 2600, by: 'Sup', text: 'Nova acção' });
-  const warn = Object.assign({ id: 4, lineId: 'C', t: 3000 }, ev('super', { moisture: '13,8' }));
+  const warn = Object.assign({ id: 4, lineId: 'C', productId: 'super', t: 3000 }, ev('super', { moisture: '13,8' }));
   h = L.holdAfterSample(h, warn);
   assert.strictEqual(h.status, 'closed'); assert.strictEqual(h.closedBySample, 4);
   // outra linha não afecta
   const h2 = L.newHold(s1);
   assert.strictEqual(L.holdAfterSample(h2, Object.assign({}, warn, { lineId: 'D' })).status, 'open');
   assert.throws(() => L.addHoldAction(h, { at: 1, by: 'x', text: 'y' }));
+});
+
+t('retenção com dois produtos na linha (v1.5.0): só fecha quando cada produto rejeitado passa', () => {
+  const smp = (id, pid, vals, t0) => Object.assign({ id, lineId: 'C', productId: pid, t: t0, crew: 'A' }, ev(pid, vals));
+  let h = L.newHold(smp(1, 'fuba2', { moisture: '14,5' }, 1000));
+  assert.deepStrictEqual(h.status, 'open');
+  h = L.addHoldAction(h, { at: 1100, by: 'Sup', text: 'acção' });
+  // amostra boa de OUTRO produto da mesma linha não liberta
+  h = L.holdAfterSample(h, smp(2, 'brew_grits', { moisture: '13' }, 1200));
+  assert.strictEqual(h.status, 'action'); assert.deepStrictEqual(h.clearedProducts, []);
+  // grits também rejeita → mantém, dois produtos por libertar
+  h = L.holdAfterSample(h, smp(3, 'brew_grits', { moisture: '14,5' }, 1300));
+  assert.strictEqual(h.status, 'open'); assert.deepStrictEqual(h.rejectedProducts, ['fuba2', 'brew_grits']);
+  h = L.addHoldAction(h, { at: 1400, by: 'Sup', text: 'acção 2' });
+  h = L.holdAfterSample(h, smp(4, 'fuba2', { moisture: '13' }, 1500));
+  assert.strictEqual(h.status, 'action'); assert.deepStrictEqual(h.clearedProducts, ['fuba2']);
+  h = L.holdAfterSample(h, smp(5, 'brew_grits', { moisture: '13' }, 1600));
+  assert.strictEqual(h.status, 'closed'); assert.strictEqual(h.closedBySample, 5);
+  // retenção antiga (só productId) continua a funcionar
+  const old = { lineId: 'C', productId: 'super', status: 'action', reasons: ['moisture'], actions: [{}], samples: [1] };
+  assert.strictEqual(L.holdAfterSample(old, smp(9, 'super', { moisture: '13' }, 2000)).status, 'closed');
+  assert.strictEqual(L.holdAfterSample(old, smp(9, 'fuba2', { moisture: '13' }, 2000)).status, 'action');
 });
 
 t('correcções substituem o original', () => {

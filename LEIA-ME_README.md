@@ -1,4 +1,10 @@
-# Moagem — Controlo de Qualidade (auto-controlo) + Produção · v1.4.0
+# Moagem — Controlo de Qualidade (auto-controlo) + Produção · v1.5.0
+
+> **v1.5.0 (09-10-2026) — vários produtos na mesma ordem.**
+> - Uma ordem pode fazer **vários produtos ao mesmo tempo** (ex.: Fuba 2 + grits cervejeira), sem limite fixo. Cada produto tem a sua **extracção alvo** e os seus **silos de destino**; a soma das extracções não pode passar 100 %. Um silo só pode ser de um produto na ordem; capacidade verificada por produto.
+> - **CQ:** cada produto em curso tem os seus controlos horários e por turno, e os seus atrasos. A linha mostra “Produtos em curso (ordem de produção)”.
+> - **Retenções:** continuam a ser da linha, mas só fecham quando **cada produto rejeitado** tem uma re-amostra aceite/aviso depois da acção correctiva. Uma amostra boa de outro produto não liberta a linha.
+> - Ordens iniciadas na v1.4.0 (um produto) continuam a aparecer e a fechar normalmente.
 
 > **v1.4.0 (09-10-2026) — receita e extracção por ordem; códigos de paragem v2.**
 > - **Não há receita fixa.** Em cada ordem o chefe de turno indica a **receita da ordem** (cor(es) e grau(s) de milho, conforme instrução do Chefe Moleiro) e a **extracção alvo (%)**. Ambas obrigatórias; o produto esperado = grão × extracção alvo.
@@ -93,6 +99,8 @@ Offline PWA for in-process quality control (auto-control) on the mill lines. Sep
 - **Limits** editable only with PIN, supervisor name and reason; every change is logged.
 
 Products and limits: see the table above (source: FMO Maize Quality Matrix v1.0, SA R.63 values adopted for now). Rules chosen: fat/fibre **below** class minimum = Warning; no warning band for fat/fibre/granulation until set; any physical defect = Reject. Frequencies: hourly — moisture, fat, physical, grits granulation; per shift (= one lot, app definition) — fibre and meal granulation; other tests record-only.
+
+> **v1.5.0 (09-10-2026) — several products per job.** A job can make several products at once (e.g. Fuba 2 + brewing grits), no fixed limit; each product has its own target extraction and destination bins, extractions may not exceed 100 % in total, a bin belongs to one product, capacity is checked per product. QC tracks hourly/shift checks and overdue status for each running product. Holds stay per line but close only when every rejected product has a passing re-sample after corrective action; a good sample of another product does not release the line. v1.4.0 single-product jobs still display and close normally.
 
 > **v1.4.0 (09-10-2026) — per-job recipe and target extraction; downtime codes v2.** No fixed recipe: at each job the shift leader enters the job recipe (maize colour(s) and grade(s), as instructed by the Chief Miller) and target extraction (%), both required. Dirty-bin content outside the job recipe is recorded as a warning on the job and does not block or need authorisation; other cereal or an undesignated silo still blocks. Production settings no longer hold extraction or recipes per product. Downtime codes v2 (corrected EN names, revised pre-AO90 PT names); phones whose old list was never edited upgrade automatically on opening (logged), edited lists are left unchanged. Shift Excel gains "Job recipe" and "Off recipe" columns. Dampener limit per line: C 2,500 L/h, D 1,500 L/h (editable with PIN); jobs block above the line limit and shift moisture readings use the current line limit, including jobs started before v1.4.0. Earlier notes about per-product recipes and blend authorisation apply up to v1.3.0 only.
 

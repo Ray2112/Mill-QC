@@ -6,11 +6,13 @@
  * v1.4.0 (Zhax, 09-10-2026): não há receita fixa. A receita (cores e graus) e a extracção alvo são
  * introduzidas pelo chefe de turno em cada ordem, conforme a matéria-prima e os produtos pedidos.
  * Conteúdo fora da receita da ordem fica registado como aviso (não bloqueia, sem autorização).
+ * v1.5.0 (Zhax, 09-10-2026): uma ordem pode fazer vários produtos ao mesmo tempo (ex.: Fuba 2 + grits cervejeira),
+ * sem limite fixo. Cada produto tem a sua extracção alvo e os seus silos de produto; soma das extracções ≤ 100 %.
  */
 (function (root) {
   'use strict';
 
-  const VERSION = '1.4.0';
+  const VERSION = '1.5.0';
   const COLOURS = ['Amarelo', 'Branco'];
   const SILO_GRADES = ['G1', 'G2', 'OFF', 'PRI'];          // designações da app de Silos (REJ nunca vai a moagem)
   // Códigos de paragem FMO — versão 2 (Zhax, 09-10-2026): nomes EN corrigidos por Zhax; nomes PT revistos
@@ -344,6 +346,17 @@
     return { ok: true, current: st.productId };
   }
 
+  // ---------- produtos da ordem (v1.5.0) ----------
+  // Formulário/ordem nova: outputs:[{productId, targetExtraction, bins:[]}]. Ordem antiga (≤ v1.4.0): productId, targetExtraction|extraction, bins.
+  function jobOutputs(job) {
+    if (job && Array.isArray(job.outputs) && job.outputs.length) return job.outputs;
+    if (!job) return [];
+    return [{ productId: job.productId || '', targetExtraction: job.targetExtraction !== undefined ? job.targetExtraction : job.extraction,
+      extraction: job.extraction, expectedKg: job.expectedKg, bins: job.bins || [] }];
+  }
+  // Produtos de uma ordem gravada (para mostrar e exportar)
+  const jobProducts = job => jobOutputs(job).map(o => o.productId).filter(Boolean);
+
   // ---------- validação da ordem de produção ----------
   // job: {productId, lineId, grainKg, mode:'seq'|'blend', sources:[silos de milho sujo em ordem], blend:{bin:{pct,m0,impurities}},
   //       tempered:[silos de milho temperado], bins:[silos de produto], m0, impurities, m1, feedTph,
@@ -358,7 +371,10 @@
     const E = [], W = [], calc = {};
     const cfgP = ctx.cfgP;
     const blend = job.mode === 'blend';
-    if (!job.productId) E.push({ code: 'no_product' });
+    const outs = jobOutputs(job).map(o => ({ productId: o.productId || '', ext: o.targetExtraction, bins: (o.bins || []).filter(Boolean) }));
+    if (!outs.length || outs.some(o => !o.productId)) E.push({ code: 'no_product' });
+    const pids = outs.map(o => o.productId).filter(Boolean);
+    if (new Set(pids).size !== pids.length) E.push({ code: 'product_dup' });
     if (!job.lineId) E.push({ code: 'no_line' });
     const kg = num(job.grainKg, 'kg');
     if (kg === null) E.push({ code: 'no_grain' });
@@ -453,31 +469,44 @@
     });
 
     // produto esperado
-    // extracção alvo: introduzida na ordem (v1.4.0)
-    const ext = num(job.targetExtraction);
-    if (ext === null) E.push({ code: 'need', field: 'targetExtraction' });
-    else if (isNaN(ext) || ext <= 0 || ext > 100) E.push({ code: 'bad', field: 'targetExtraction' });
-    const extOk = isNum(ext) && ext > 0 && ext <= 100;
-    if (isNum(kg) && kg > 0 && extOk) calc.expectedKg = r0(kg * ext / 100);
-    calc.extraction = extOk ? ext : null;
-
-    // silos de produto: linha, produto, capacidade
-    const bins = (job.bins || []).filter(Boolean);
-    if (!bins.length) E.push({ code: 'no_bin' });
-    let capKnown = 0, unknownLevel = false, missingCap = false;
-    bins.forEach(id => {
-      const b = cfgP.bins.find(x => x.id === id);
-      const r = binCheck(b, job.productId, job.lineId, ctx.binEvents);
-      if (!r.ok) { E.push({ code: r.why, bin: id, current: r.current }); return; }
-      if (!isNum(b.capT)) missingCap = true;
-      else if (r.current) unknownLevel = true;            // já tem o mesmo produto: nível desconhecido
-      else capKnown += b.capT * 1000;
+    // por produto: extracção alvo (v1.4.0, por produto desde v1.5.0) e silos de produto (linha, produto, capacidade)
+    const multi = outs.length > 1;
+    const tag = o => multi ? { productId: o.productId } : {};
+    const binOwner = {};
+    calc.outputs = [];
+    let extSum = 0, extAll = true, expTotal = 0, capTotal = 0;
+    outs.forEach(o => {
+      const ext = num(o.ext);
+      if (ext === null) E.push(Object.assign({ code: 'need', field: 'targetExtraction' }, tag(o)));
+      else if (isNaN(ext) || ext <= 0 || ext > 100) E.push(Object.assign({ code: 'bad', field: 'targetExtraction' }, tag(o)));
+      const extOk = isNum(ext) && ext > 0 && ext <= 100;
+      if (extOk) extSum += ext; else extAll = false;
+      const exp = isNum(kg) && kg > 0 && extOk ? r0(kg * ext / 100) : null;
+      if (isNum(exp)) expTotal += exp;
+      if (!o.bins.length) E.push(Object.assign({ code: 'no_bin' }, tag(o)));
+      let capKnown = 0, unknownLevel = false, missingCap = false;
+      o.bins.forEach(id => {
+        if (binOwner[id] !== undefined) { E.push({ code: 'bin_dup', bin: id }); return; }
+        binOwner[id] = o.productId;
+        const b = cfgP.bins.find(x => x.id === id);
+        const r = binCheck(b, o.productId, job.lineId, ctx.binEvents);
+        if (!r.ok) { E.push(Object.assign({ code: r.why, bin: id, current: r.current }, tag(o))); return; }
+        if (!isNum(b.capT)) missingCap = true;
+        else if (r.current) unknownLevel = true;            // já tem o mesmo produto: nível desconhecido
+        else capKnown += b.capT * 1000;
+      });
+      capTotal += capKnown;
+      if (o.bins.length && isNum(exp) && !missingCap) {
+        if (!unknownLevel && exp > capKnown) E.push(Object.assign({ code: 'bin_capacity', need: exp, cap: capKnown }, tag(o)));
+        else if (unknownLevel && exp > capKnown) W.push(Object.assign({ code: 'bin_level_unknown' }, tag(o)));
+      }
+      calc.outputs.push({ productId: o.productId, extraction: extOk ? ext : null, expectedKg: exp, bins: o.bins.slice() });
     });
-    calc.binCapKg = capKnown;
-    if (bins.length && isNum(calc.expectedKg) && !missingCap) {
-      if (!unknownLevel && calc.expectedKg > capKnown) E.push({ code: 'bin_capacity', need: calc.expectedKg, cap: capKnown });
-      else if (unknownLevel && calc.expectedKg > capKnown) W.push({ code: 'bin_level_unknown' });
-    }
+    extSum = Math.round(extSum * 100) / 100;
+    if (extAll && extSum > 100) E.push({ code: 'extraction_sum', sum: extSum });
+    calc.extraction = extAll && outs.length ? extSum : null;
+    if (calc.extraction !== null && isNum(kg) && kg > 0) calc.expectedKg = expTotal;
+    calc.binCapKg = capTotal;
 
     // água
     if (isNum(kg) && kg > 0 && isNum(m0) && isNum(m1) && m0 >= 0 && m1 > 0 && m1 < 100) {
@@ -680,7 +709,7 @@
 
   const api = { VERSION, COLOURS, SILO_GRADES, GRAIN_SILOS, DEFAULT_DIRTY_BINS, DEFAULT_TEMPERED_BINS, MASTER_SOURCE, dirtyBinState, validateTransfer, crewLeader, leaderNames, transferredAfter, parseSiloList, nonCanonical, DOWNTIME_CODES, DOWNTIME_SOURCE, TIER3, V2_CATS, OEE_TREAT, defaultCodes, findCode, validateCodes, ACT_TYPES, JOB_STATUS, DEFAULT_BINS, BIN_SOURCE,
     defaultProdConfig, num, waterFor, waterRate, defaultFeedTph, siloKg, snapshotFromSilosBackup,
-    availableKg, allocate, recipeSet, OLD_DOWNTIME_SOURCES, dampenerMax, recipeFit, binState, binCheck, validateJob, readingCalc, needsShiftReading, parseBins, binsText,
+    availableKg, allocate, jobOutputs, jobProducts, recipeSet, OLD_DOWNTIME_SOURCES, dampenerMax, recipeFit, binState, binCheck, validateJob, readingCalc, needsShiftReading, parseBins, binsText,
     validateProdConfig, prodConfigDiff, effectiveLog, validateIssue, validateActivity, shiftSummary, uid, validProdBackup };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Prod = api;

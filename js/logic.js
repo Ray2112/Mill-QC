@@ -6,7 +6,7 @@
 (function (root) {
   'use strict';
 
-  const VERSION = '1.4.0';
+  const VERSION = '1.5.0';
   const DECISIONS = ['record', 'accept', 'warn', 'reject'];   // ordem de gravidade
   const RANK = { record: 0, accept: 1, warn: 2, reject: 3 };
   const CREWS = ['A', 'B', 'C', 'D'];
@@ -215,15 +215,22 @@
 
   // ---------- retenções (hold) ----------
   // status: 'open' (precisa acção) → 'action' (aguarda re-amostra) → 'closed'
+  // v1.5.0: a linha pode fazer vários produtos. A retenção é da linha, mas só fecha quando CADA produto rejeitado
+  // tem uma re-amostra aceite/aviso depois da acção correctiva (uma amostra boa de outro produto não liberta).
   function holdAfterSample(hold, sample) {
     if (!hold || hold.status === 'closed' || sample.lineId !== hold.lineId) return hold;
     const h = JSON.parse(JSON.stringify(hold));
     h.samples = (h.samples || []).concat([sample.id]);
+    h.rejectedProducts = Array.isArray(h.rejectedProducts) && h.rejectedProducts.length ? h.rejectedProducts : (h.productId ? [h.productId] : []);
+    h.clearedProducts = Array.isArray(h.clearedProducts) ? h.clearedProducts : [];
     if (sample.decision === 'reject') {
       h.status = 'open';
       h.reasons = (h.reasons || []).concat(sample.failures.filter(f => f.decision === 'reject').map(f => f.param));
+      if (h.rejectedProducts.indexOf(sample.productId) < 0) h.rejectedProducts.push(sample.productId);
+      h.clearedProducts = h.clearedProducts.filter(p => p !== sample.productId);
     } else if (h.status === 'action' && (sample.decision === 'accept' || sample.decision === 'warn')) {
-      h.status = 'closed'; h.closedAt = sample.t; h.closedBySample = sample.id;
+      if (h.rejectedProducts.indexOf(sample.productId) >= 0 && h.clearedProducts.indexOf(sample.productId) < 0) h.clearedProducts.push(sample.productId);
+      if (h.rejectedProducts.every(p => h.clearedProducts.indexOf(p) >= 0)) { h.status = 'closed'; h.closedAt = sample.t; h.closedBySample = sample.id; }
     }
     return h;
   }

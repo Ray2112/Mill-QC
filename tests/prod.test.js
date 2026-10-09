@@ -384,6 +384,45 @@ t('códigos de paragem v2: 60 códigos, nomes PT pré-AO90, fonte', () => {
   assert.deepStrictEqual(P.validateCodes ? P.validateCodes(P.defaultCodes()) : [], []);
 });
 
+t('vários produtos na mesma ordem (v1.5.0): extracção e silos por produto', () => {
+  const mk = outs => Object.assign(baseJob(), { productId: undefined, bins: undefined, targetExtraction: undefined, outputs: outs });
+  const j = mk([{ productId: 'fuba2', targetExtraction: '45', bins: ['B44'] }, { productId: 'brew_grits', targetExtraction: '30', bins: ['B45'] }]);
+  const r = P.validateJob(j, ctx());
+  assert.deepStrictEqual(codes(r), []);
+  assert.deepStrictEqual(r.calc.outputs.map(o => [o.productId, o.extraction, o.expectedKg, o.bins]), [['fuba2', 45, 45000, ['B44']], ['brew_grits', 30, 30000, ['B45']]]);
+  assert.strictEqual(r.calc.extraction, 75); assert.strictEqual(r.calc.expectedKg, 75000);
+  // três produtos: sem limite fixo
+  const j3 = mk([{ productId: 'fuba2', targetExtraction: '40', bins: ['B44'] }, { productId: 'brew_grits', targetExtraction: '20', bins: ['B45'] }, { productId: 'snack_grits', targetExtraction: '10', bins: ['B46'] }]);
+  assert.deepStrictEqual(codes(P.validateJob(j3, ctx())), []);
+  // soma > 100 %
+  const js = mk([{ productId: 'fuba2', targetExtraction: '70', bins: ['B44'] }, { productId: 'brew_grits', targetExtraction: '35,5', bins: ['B45'] }]);
+  const es = P.validateJob(js, ctx()).errors.find(e => e.code === 'extraction_sum'); assert.ok(es); assert.strictEqual(es.sum, 105.5);
+  // produto repetido, silo em dois produtos, produto sem silo, extracção em falta — com o produto identificado
+  const jb = mk([{ productId: 'fuba2', targetExtraction: '', bins: ['B44'] }, { productId: 'fuba2', targetExtraction: '20', bins: ['B44'] }, { productId: 'brew_grits', targetExtraction: '10', bins: [] }]);
+  const rb = P.validateJob(jb, ctx());
+  ['product_dup', 'bin_dup', 'no_bin', 'need'].forEach(c => assert.ok(codes(rb).includes(c), c));
+  assert.ok(rb.errors.some(e => e.code === 'no_bin' && e.productId === 'brew_grits'));
+  assert.ok(rb.errors.some(e => e.code === 'need' && e.field === 'targetExtraction' && e.productId === 'fuba2'));
+  // produto sem escolher
+  assert.ok(codes(P.validateJob(mk([{ productId: '', targetExtraction: '40', bins: ['B44'] }]), ctx())).includes('no_product'));
+  // silo de produto com outro produto: verificado por produto
+  const jc = mk([{ productId: 'fuba2', targetExtraction: '45', bins: ['B44'] }, { productId: 'brew_grits', targetExtraction: '30', bins: ['B45'] }]);
+  const rc = P.validateJob(jc, ctx({ binEvents: [{ binId: 'B45', type: 'FILL', productId: 'fuba2', t: 1 }] }));
+  assert.ok(rc.errors.some(e => e.code === 'bin_other_product' && e.bin === 'B45' && e.productId === 'brew_grits'));
+  // capacidade por produto: grits 30 % de 700 t = 210 t > B45 188 t
+  const jk = Object.assign(mk([{ productId: 'fuba2', targetExtraction: '45', bins: ['B44', 'B46'] }, { productId: 'brew_grits', targetExtraction: '30', bins: ['B45'] }]), { grainKg: '700.000', sources: ['B01', 'B02', 'B03', 'B04'] });
+  const ck = ctx(); ck.moves.push(mv('B01', [part('S05', 70000)], T0 + 200), mv('B02', [part('S06', 30000)], T0 + 200));
+  ck.moves.push(mv('B03', [part('S07', 400000)], T0 + 200));
+  const rk = P.validateJob(jk, ck);
+  const cap = rk.errors.find(e => e.code === 'bin_capacity'); assert.ok(cap); assert.strictEqual(cap.productId, 'brew_grits'); assert.strictEqual(cap.need, 210000);
+  assert.ok(!rk.errors.some(e => e.code === 'bin_capacity' && e.productId === 'fuba2'));   // 315 t ≤ 376 t
+  // ordem antiga (v1.4.0) lida pelo mesmo caminho
+  const old = { productId: 'super', extraction: 70, expectedKg: 70000, bins: ['B44'] };
+  assert.deepStrictEqual(P.jobProducts(old), ['super']);
+  assert.strictEqual(P.jobOutputs(old)[0].expectedKg, 70000);
+  assert.deepStrictEqual(P.jobProducts({ outputs: [{ productId: 'fuba2' }, { productId: 'brew_grits' }] }), ['fuba2', 'brew_grits']);
+});
+
 t('humidade do milho por turno: recalcula o caudal de água', () => {
   const job = { status: 'running', startedAt: 1000, feedTph: 500 / 24, m1: 16, dampenerMaxLh: 2500, readings: [] };
   const r = P.readingCalc(job, '13,0');

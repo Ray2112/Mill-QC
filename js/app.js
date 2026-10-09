@@ -99,6 +99,11 @@
     S.reports = await DB.all('reports');
   }
   const openHold = lineId => S.holds.find(h => h.lineId === lineId && h.status !== 'closed');
+  // produtos em curso na linha (v1.5.0: uma ordem pode fazer vários; antes só productId)
+  // produtos de uma retenção: rejeitados (v1.5.0) com ✓ para os já libertados por re-amostra
+  const holdProds = h => (Array.isArray(h.rejectedProducts) && h.rejectedProducts.length ? h.rejectedProducts : [h.productId])
+    .map(p => prodName(p) + ((h.clearedProducts || []).indexOf(p) >= 0 && h.status !== 'closed' ? ' ✓' : '')).join(' + ');
+  const lineProds = st => st && Array.isArray(st.products) && st.products.length ? st.products : (st && st.productId ? [st.productId] : []);
   function lineSamples(lineId) { return L.effective(S.samples).filter(s => s.lineId === lineId); }
   function lineStatus(lineId) {
     if (openHold(lineId)) return 'hold';
@@ -154,19 +159,21 @@
     S.cfg.lines.forEach(l => {
       const st = S.lineState[l.id];
       if (!st || !st.running) return;
-      const prod = product(st.productId); if (!prod) return;
-      const d = L.dueStatus(prod, lineSamples(l.id), st.since, Date.now(), S.cfg.graceMin);
-      d.hourly.filter(x => x.overdue).forEach(x => out.push({ lineId: l.id, param: x.param, due: x.due, prod }));
+      lineProds(st).forEach(pid => {
+        const prod = product(pid); if (!prod) return;
+        const d = L.dueStatus(prod, lineSamples(l.id), st.since, Date.now(), S.cfg.graceMin);
+        d.hourly.filter(x => x.overdue).forEach(x => out.push({ lineId: l.id, param: x.param, due: x.due, prod }));
+      });
     });
     return out;
   }
   function checkOverdue() {
     const od = overdueList();
     od.forEach(o => {
-      const k = o.lineId + '|' + o.param + '|' + o.due;
+      const k = o.lineId + '|' + o.prod.id + '|' + o.param + '|' + o.due;
       if (S.notified[k]) return;
       S.notified[k] = 1;
-      notify(t('overdueTitle'), lineName(o.lineId) + ': ' + (o.param === 'physical' ? t('physical') : paramLabel(o.param, o.prod)) + ' — ' + t('dueAt', { h: fmtTime(o.due) }), 'od-' + o.lineId);
+      notify(t('overdueTitle'), lineName(o.lineId) + ' · ' + prodName(o.prod.id) + ': ' + (o.param === 'physical' ? t('physical') : paramLabel(o.param, o.prod)) + ' — ' + t('dueAt', { h: fmtTime(o.due) }), 'od-' + o.lineId);
     });
     if (S.view === 'home' && !S.modal) render();
   }
@@ -233,26 +240,27 @@
   function lineCard(l) {
     const st = S.lineState[l.id] || {};
     const status = lineStatus(l.id);
-    const prod = st.productId ? product(st.productId) : null;
+    const pids = lineProds(st), multi = pids.length > 1;
     const hold = openHold(l.id);
     let due = '';
-    if (st.running && prod) {
+    if (st.running) pids.forEach(pid => {
+      const prod = product(pid); if (!prod) return;
       const d = L.dueStatus(prod, lineSamples(l.id), st.since, Date.now(), S.cfg.graceMin);
-      due = `<div class="due"><div class="sub">${esc(t('hourlyChecks'))}</div>${d.hourly.map(x =>
+      due += `${multi ? `<div class="sub"><b>▸ ${esc(prodName(pid))}</b></div>` : ''}<div class="due"><div class="sub">${esc(t('hourlyChecks'))}</div>${d.hourly.map(x =>
         `<span class="chip ${x.overdue ? 'd-reject' : x.dueNow ? 'd-warn' : 'd-accept'}">${esc(x.param === 'physical' ? t('physical') : paramLabel(x.param, prod))} ${x.overdue ? esc(t('late')) : esc(fmtTime(x.due))}</span>`).join('')}</div>
         ${d.shift.length ? `<div class="due"><div class="sub">${esc(t('shiftChecks'))}</div>${d.shift.map(x =>
         `<span class="chip ${x.done ? 'd-accept' : 'd-warn'}">${esc(paramLabel(x.param, prod))} ${x.done ? '✓' : esc(t('pending'))}</span>`).join('')}</div>` : ''}`;
-    }
+    });
     const statusCls = { hold: 'd-reject', warn: 'd-warn', ok: 'd-accept', stopped: 'd-record', nodata: 'd-record' }[status];
     return `<section class="card line">
       <div class="row between"><h2>${esc(l.name)}</h2><span class="status ${statusCls}">${esc(t('st_' + status))}</span></div>
       ${hold ? `<div class="banner b-reject" data-nav="holds">${esc(t('holdSince', { h: fmtDT(hold.openedAt) }))} — ${esc(t('hs_' + hold.status))}</div>` : ''}
       ${PU.homeLine(l.id)}
-      <label class="fld">${esc(t('runningProduct'))}
+      ${multi ? `<div class="kv"><span>${esc(t('runningProducts'))}</span><b>${esc(pids.map(prodName).join(' + '))}</b></div>` : `<label class="fld">${esc(t('runningProduct'))}
         <select data-lineprod="${esc(l.id)}">
           <option value="">—</option>
           ${products().map(p => `<option value="${esc(p.id)}" ${st.productId === p.id ? 'selected' : ''}>${esc(prodName(p.id))}</option>`).join('')}
-        </select></label>
+        </select></label>`}
       <div class="row">
         <button class="btn ${st.running ? 'ghost' : ''}" data-run="${esc(l.id)}">${esc(st.running ? t('stopLine') : t('startLine'))}</button>
         <button class="btn primary" data-newsample="${esc(l.id)}">${esc(t('newSample'))}</button>
@@ -286,7 +294,7 @@
     if (!S.form) newForm();
     const f = S.form, prod = product(f.productId);
     const st = S.lineState[f.lineId] || {};
-    const due = prod && st.running && st.productId === prod.id ? L.dueStatus(prod, lineSamples(f.lineId), st.since, Date.now(), S.cfg.graceMin) : null;
+    const due = prod && st.running && lineProds(st).indexOf(prod.id) >= 0 ? L.dueStatus(prod, lineSamples(f.lineId), st.since, Date.now(), S.cfg.graceMin) : null;
     const pendingShift = due ? due.shift.filter(x => !x.done).map(x => x.param) : [];
     const byFreq = fr => L.PARAMS.filter(p => !L.EXTRA.includes(p) && prod.limits[p] && prod.limits[p].freq === fr && (p !== 'granB' || prod.limits.granB.sieve || L.hasLimits(prod.limits.granB)));
     const hourly = byFreq('hourly'), shift = byFreq('shift');
@@ -390,13 +398,13 @@
     const open = S.holds.filter(h => h.status !== 'closed').sort((a, b) => b.openedAt - a.openedAt);
     const closed = S.holds.filter(h => h.status === 'closed').sort((a, b) => b.closedAt - a.closedAt).slice(0, 20);
     return `<section class="card"><h2>${esc(t('openHolds'))}</h2>${open.length ? open.map(holdCard).join('') : `<p class="sub">${esc(t('noHolds'))}</p>`}</section>
-      <section class="card"><h3>${esc(t('closedHolds'))}</h3>${closed.map(h => `<div class="rowitem"><b>${esc(lineName(h.lineId))}</b> · ${esc(prodName(h.productId))}<br><small>${esc(fmtDT(h.openedAt))} → ${esc(fmtDT(h.closedAt))} · ${esc(h.reasons.map(r => paramLabel(r, product(h.productId))).join(', '))}</small>
+      <section class="card"><h3>${esc(t('closedHolds'))}</h3>${closed.map(h => `<div class="rowitem"><b>${esc(lineName(h.lineId))}</b> · ${esc(holdProds(h))}<br><small>${esc(fmtDT(h.openedAt))} → ${esc(fmtDT(h.closedAt))} · ${esc(h.reasons.map(r => paramLabel(r, product(h.productId))).join(', '))}</small>
         ${(h.actions || []).map(a => `<div class="act"><small>${esc(fmtDT(a.at))} · ${esc(a.by)}: ${esc(a.text)}</small></div>`).join('')}</div>`).join('') || `<p class="sub">—</p>`}</section>`;
   }
   function holdCard(h) {
     const prod = product(h.productId);
     return `<div class="hold">
-      <div class="row between"><b>${esc(lineName(h.lineId))} · ${esc(prodName(h.productId))}</b><span class="status d-reject">${esc(t('hs_' + h.status))}</span></div>
+      <div class="row between"><b>${esc(lineName(h.lineId))} · ${esc(holdProds(h))}</b><span class="status d-reject">${esc(t('hs_' + h.status))}</span></div>
       <small>${esc(t('openedAt'))}: ${esc(fmtDT(h.openedAt))} · ${esc(t('reasons'))}: ${esc([...new Set(h.reasons)].map(r => r in { odour: 1, colour: 1, mould: 1, insects: 1, foreign: 1 } ? t('ph_' + r) : paramLabel(r, prod)).join(', '))}</small>
       ${(h.actions || []).map(a => `<div class="act"><small>${esc(fmtDT(a.at))} · ${esc(a.by)}: ${esc(a.text)}</small></div>`).join('')}
       ${h.status === 'action' ? `<p class="sub">${esc(t('awaitResample'))}</p>` : ''}
@@ -488,7 +496,7 @@
     add(t('x_alerts'), [[t('dateTime'), t('line'), t('product'), t('crew'), t('decision'), t('failures')],
       ...r.alerts.map(x => [fmtDT(x.t), lineName(x.lineId), prodName(x.productId), x.crew, decLabel(x.decision), x.failures.map(f => anyLabel(f.param, product(x.productId)) + '=' + (f.value === 'abn' ? t('abnormal') : f.value)).join('; ')])]);
     add(t('x_holds'), [[t('line'), t('product'), t('openedAt'), t('closedAt'), t('durationMin'), t('status'), t('reasons'), t('actions')],
-      ...r.holds.map(h => [lineName(h.lineId), prodName(h.productId), fmtDT(h.openedAt), h.closedAt ? fmtDT(h.closedAt) : '', h.durationMin, t('hs_' + h.status),
+      ...r.holds.map(h => [lineName(h.lineId), holdProds(h), fmtDT(h.openedAt), h.closedAt ? fmtDT(h.closedAt) : '', h.durationMin, t('hs_' + h.status),
         [...new Set(h.reasons)].map(r => anyLabel(r, product(h.productId))).join(', '), (h.actions || []).map(a => fmtDT(a.at) + ' ' + a.by + ': ' + a.text).join(' | ')])]);
     const lim = [[t('product'), t('class'), t('parameter'), t('limits'), t('frequency'), t('source')]];
     products().forEach(p => L.PARAMS.forEach(k => { const m = p.limits[k]; if (m && (L.hasLimits(m) || m.freq !== 'optional')) lim.push([prodName(p.id), p.cls, paramLabel(k, p), limitText(m), t('fr_' + m.freq), m.src || '']); }));
@@ -672,7 +680,7 @@
   async function changeLineProduct(lineId, pid, el) {
     const st = Object.assign({}, S.lineState[lineId] || {});
     if (st.running && st.productId && pid !== st.productId && !confirm(t('confirmChange'))) { el.value = st.productId; return; }
-    st.productId = pid || null; st.since = Date.now();
+    st.productId = pid || null; st.products = pid ? [pid] : []; st.since = Date.now();
     if (!pid) st.running = false;
     S.lineState = Object.assign({}, S.lineState, { [lineId]: st });
     await DB.setConfig('lineState', S.lineState); render();
