@@ -32,6 +32,15 @@ window.ProdUI = function (C) {
       S.deviceId = 'd' + Array.from(crypto.getRandomValues(new Uint8Array(4))).map(x => x.toString(16).padStart(2, '0')).join('');
       await DB.setConfig('deviceId', S.deviceId);
     }
+    // v1.4.0: lista por defeito antiga e nunca editada neste telemóvel → passa para os códigos v2 (registado em prodChanges)
+    if (P.OLD_DOWNTIME_SOURCES.indexOf(S.cfgP.codesSource) >= 0) {
+      const n = Object.assign({}, S.cfgP, { downtimeCodes: P.defaultCodes(), codesSource: P.DOWNTIME_SOURCE });
+      const diff = P.prodConfigDiff(S.cfgP, n), tms = now();
+      try {
+        if (diff.length) await DB.batch(diff.map(x => ({ store: 'prodChanges', op: 'add', obj: Object.assign(base(tms), { t: tms, by: 'app ' + P.VERSION, reason: t('codesAutoUpgrade') }, x) })));
+        await DB.setConfig('cfgP', n); S.cfgP = n;
+      } catch (e) { /* mantém a lista antiga; tenta de novo na próxima abertura */ }
+    }
     await reload();
   }
   async function reload() {
@@ -193,7 +202,9 @@ window.ProdUI = function (C) {
       <div class="kv"><span>${esc(t('grainToMill'))}</span><b>${fmtKg(j.grainKg)} kg</b></div>
       <div class="kv"><span>${esc(t('fromBins'))}${j.mode === 'blend' ? ' · ' + esc(t('mode_blend')) : ''}</span><b>${allocText(j.alloc)}</b></div>
       ${j.sourceComps ? `<div><small>${esc(Object.keys(j.sourceComps).map(k => k + ': ' + compText(j.sourceComps[k])).join(' · '))}</small></div>` : ''}
-      ${j.offRecipeAuth ? `<div class="banner b-warn"><small>${esc(t('authOnJob', { s: (j.offRecipe || []).map(x => x.bin || x.silo).join(', '), by: j.offRecipeAuth.by, r: j.offRecipeAuth.reason }))}</small></div>` : ''}
+      ${j.recipe && P.recipeSet(j.recipe) ? `<div class="kv"><span>${esc(t('jobRecipe'))}</span><b>${esc(j.recipe.colours.join('/'))} · ${esc(j.recipe.grades.map(g => t('g_' + g)).join('/'))}</b></div>` : ''}
+      ${j.offRecipeAuth ? `<div class="banner b-warn"><small>${esc(t('authOnJob', { s: (j.offRecipe || []).map(x => x.bin || x.silo).join(', '), by: j.offRecipeAuth.by, r: j.offRecipeAuth.reason }))}</small></div>`
+        : (j.offRecipe || []).length ? `<div class="banner b-warn"><small>${esc(t('offRecipeOnJob', { s: j.offRecipe.map(x => x.bin || x.silo).join(', ') }))}</small></div>` : ''}
       <div class="kv"><span>${esc(t('temperedBin'))}</span><b>${esc((j.tempered || []).join(', ') || '—')}</b></div>
       <div class="kv"><span>${esc(t('toBins'))}</span><b>${esc((j.bins || []).join(', '))}</b></div>
       <div class="kv"><span>${esc(t('moistureFromTo'))}</span><b>${esc(C.fmtNum(j.m0))} → ${esc(C.fmtNum(j.m1))} % · ${esc(t('impurities'))} ${esc(C.fmtNum(j.impurities))} %</b></div>
@@ -262,19 +273,21 @@ window.ProdUI = function (C) {
   function newJobForm() {
     const line = S.cfg.lines.find(l => !runningJob(l.id));
     S.jobForm = { productId: '', lineId: line ? line.id : '', grainKg: '', mode: 'seq', sources: [], blend: {}, tempered: [], bins: [], m0: '', impurities: '', m1: '', feedTph: '',
-      offRecipeAuth: null, leader: defLeader() };
+      recipe: { colours: [], grades: [] }, targetExtraction: '', leader: defLeader() };
   }
   const ctxFor = () => ({ cfgP: S.cfgP, millType: S.cfg.millType, moves: S.moves, jobs: S.jobs, binEvents: S.binEvents, now: now(), shiftStart: L.shiftOf(now()).start });
   function jobFormView() {
     const f = S.jobForm;
-    const recipe = S.cfgP.recipes[f.productId];
+    const recipe = f.recipe;
     const tphDef = f.lineId ? P.defaultFeedTph(S.cfgP, f.lineId) : null;
     const srcRows = (S.cfgP.dirtyBins || []).filter(b => !f.lineId || b.lines.indexOf(f.lineId) >= 0).map(b => {
       const idx = f.sources.indexOf(b.id);
       const st = dirtyState(b.id);
       const bad = P.recipeSet(recipe) ? st.comps.map(c => P.recipeFit(recipe, c, S.cfg.millType)).filter(x => !x.ok) : [];
-      const chip = !f.productId || st.kg <= 0 ? '' : !P.recipeSet(recipe) ? `<span class="chip d-record">${esc(t('je_recipe_not_set'))}</span>`
-        : bad.length ? `<span class="chip d-reject">${esc(t('why_' + bad[0].why))}</span>` : `<span class="chip d-accept">${esc(t('compatible'))}</span>`;
+      const hard = bad.find(x => x.why !== 'colour' && x.why !== 'grade');
+      const chip = st.kg <= 0 ? '' : !P.recipeSet(recipe) ? `<span class="chip d-record">${esc(t('recipeFirst'))}</span>`
+        : hard ? `<span class="chip d-reject">${esc(t('why_' + hard.why))}</span>`
+        : bad.length ? `<span class="chip d-warn">${esc(t('why_' + bad[0].why))}</span>` : `<span class="chip d-accept">${esc(t('compatible'))}</span>`;
       return `<button class="pick ${idx >= 0 ? 'on' : ''}" data-jsrc="${esc(b.id)}">${idx >= 0 ? `<i class="ord">${idx + 1}</i>` : ''}<b>${esc(b.id)}</b>
         <small>${st.kg > 0 ? fmtKg(st.kg) + ' kg · ' + esc(compText(st.comps)) : esc(t('binEmpty'))}</small>${chip}</button>`;
     }).join('');
@@ -296,14 +309,16 @@ window.ProdUI = function (C) {
         <label class="fld">${esc(t('feedRate'))} (t/h)<input inputmode="decimal" data-jfi="feedTph" value="${esc(f.feedTph)}" placeholder="${esc(tphDef ? C.fmtNum(Math.round(tphDef * 100) / 100) : '')}"></label>
       </div>
       <p class="sub">${esc(t('feedRateHint'))}</p>
-      ${f.productId && !P.recipeSet(recipe) ? `<div class="banner b-reject">${esc(t('je_recipe_not_set'))}</div>` : ''}
-      ${f.productId && P.recipeSet(recipe) ? `<p class="sub">${esc(t('recipeIs', { c: recipe.colours.join('/'), g: recipe.grades.map(g => t('g_' + g)).join('/') }))}</p>` : ''}
     </section>
+    <section class="card"><h3>${esc(t('jobRecipe'))}</h3><p class="sub">${esc(t('jobRecipeHelp'))}</p>
+      <div class="sub req">${esc(t('recipeColours'))}</div><div class="picks">${P.COLOURS.map(c => `<button class="pick ${recipe.colours.indexOf(c) >= 0 ? 'on' : ''}" data-jrc="${esc(c)}"><b>${esc(c)}</b></button>`).join('')}</div>
+      <div class="sub req">${esc(t('recipeGrades'))}</div><div class="picks">${P.SILO_GRADES.map(g => `<button class="pick ${recipe.grades.indexOf(g) >= 0 ? 'on' : ''}" data-jrg="${esc(g)}"><b>${esc(t('g_' + g))}</b></button>`).join('')}</div>
+      <div class="grid2"><label class="fld req">${esc(t('extraction'))} (%)<input inputmode="decimal" data-jfi="targetExtraction" value="${esc(f.targetExtraction)}"></label></div>
+      <p class="sub">${esc(t('extractionHelp'))}</p></section>
     <section class="card"><h3>${esc(t('rawMaterial'))}</h3>
       <div class="seg mode"><button data-jmode="seq" class="${f.mode !== 'blend' ? 'on ok' : ''}">${esc(t('mode_seq'))}</button><button data-jmode="blend" class="${f.mode === 'blend' ? 'on ok' : ''}">${esc(t('mode_blend'))}</button></div>
       <p class="sub">${esc(t(f.mode === 'blend' ? 'binsBlend' : 'binsOrder'))}</p>${f.lineId ? '' : `<p class="sub">${esc(t('pickLineFirst'))}</p>`}<div class="picks">${srcRows}</div>
       ${f.mode === 'blend' && f.sources.length ? blendTable(f) : ''}
-      ${authBlock(f)}
       <h3>${esc(t('temperedBin'))}</h3><div class="picks">${tempRows}</div></section>
     <section class="card"><h3>${esc(t('grainSpecs'))}</h3>
       <div class="grid3">
@@ -329,26 +344,6 @@ window.ProdUI = function (C) {
         <td><input inputmode="decimal" data-jbl="${esc(id)}|m0" value="${esc(b.m0 || '')}"></td>
         <td><input inputmode="decimal" data-jbl="${esc(id)}|impurities" value="${esc(b.impurities || '')}"></td></tr>`; }).join('')}
       </tbody></table></div>`;
-  }
-  // Autorização de supervisor para silos fora da receita (outra cor/grau)
-  function authBlock(f) {
-    if (f.offRecipeAuth) return `<div class="banner b-warn">${esc(t('authGiven', { by: f.offRecipeAuth.by, r: f.offRecipeAuth.reason }))} <button class="btn ghost small" data-pact="removeauth">${esc(t('remove'))}</button></div>`;
-    const r = P.validateJob(f, ctxFor());
-    const need = r.errors.filter(e => e.code === 'source_incompatible' && e.canAuth);
-    if (!need.length) return '';
-    return `<div class="holdform"><p class="sub"><b>${esc(t('authTitle', { s: need.map(e => e.bin).join(', ') }))}</b> ${esc(t('authNote'))}</p>
-      <label class="fld req">${esc(t('supervisor'))}<input id="au_by"></label>
-      <label class="fld req">${esc(t('reason'))}<input id="au_reason"></label>
-      <label class="fld req">${esc(t('pin'))}<input type="password" inputmode="numeric" id="au_pin"></label>
-      <button class="btn small" data-pact="authblend">${esc(t('authorize'))}</button></div>`;
-  }
-  async function authorizeBlend() {
-    const by = $('#au_by').value.trim(), reason = $('#au_reason').value.trim();
-    if (!by || !reason) return C.toast(t('needByReason'));
-    const r = await C.checkPin($('#au_pin').value);
-    if (!r.ok) return C.toast(C.pinMsg(r));
-    S.jobForm.offRecipeAuth = { by, reason, at: now() };
-    keepScroll();
   }
   function errText(e) {
     const v = Object.assign({}, e);
@@ -389,10 +384,11 @@ window.ProdUI = function (C) {
       grainKg: r.values.grainKg, mode: f.mode === 'blend' ? 'blend' : 'seq', sources: f.sources.slice(), sourceComps, alloc: r.calc.alloc,
       tempered: f.tempered.slice(), bins: f.bins.slice(),
       blendInputs: f.mode === 'blend' ? JSON.parse(JSON.stringify(f.blend)) : null,
-      offRecipe: r.calc.offRecipe, offRecipeAuth: r.calc.offRecipe.length ? f.offRecipeAuth : null,
+      offRecipe: r.calc.offRecipe,
       m0: r.values.m0, m1: r.values.m1, impurities: r.values.impurities, feedTph: r.calc.feedTph,
       waterL: r.calc.waterL, waterLh: r.calc.waterLh, expectedKg: isNum(r.calc.expectedKg) ? r.calc.expectedKg : null,
-      extraction: r.calc.extraction, dampenerMaxLh: S.cfgP.dampenerMaxLh, recipe: JSON.parse(JSON.stringify(S.cfgP.recipes[f.productId])),
+      extraction: r.calc.extraction, extractionRaw: String(f.targetExtraction), dampenerMaxLh: S.cfgP.dampenerMaxLh,
+      recipe: { colours: f.recipe.colours.slice(), grades: f.recipe.grades.slice(), source: 'job' },
       warnings: r.warnings.map(w => w.code + (w.bin ? ':' + w.bin : '')),
       leader: String(f.leader).trim(), leaderCrew: leaderCrewOf(String(f.leader).trim())
     });
@@ -568,10 +564,12 @@ window.ProdUI = function (C) {
     const add = (name, rows) => XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), name.slice(0, 31));
     add(t('x_jobs'), [[t('waShiftTitle', { d: ls.day, s: t('shift_' + ls.period) })], [],
       [t('line'), t('product'), t('status'), t('startedAt'), t('closedAt'), t('shiftLeader'), t('crew'), t('grainToMill') + ' (kg)', t('fromBins'), t('binContents'), t('temperedBin'), t('toBins'),
-        t('m0'), t('impurities'), t('m1'), t('feedRate') + ' (t/h)', t('waterRate') + ' (L/h)', t('waterTotal') + ' (L)', t('extraction') + ' %', t('expectedProduct') + ' (kg)', t('actualGrain') + ' (kg)', t('notes')],
+        t('m0'), t('impurities'), t('m1'), t('feedRate') + ' (t/h)', t('waterRate') + ' (L/h)', t('waterTotal') + ' (L)', t('jobRecipe'), t('x_offRecipe'), t('extraction') + ' %', t('expectedProduct') + ' (kg)', t('actualGrain') + ' (kg)', t('notes')],
       ...sm.jobs.map(j => [C.lineName(j.lineId), C.prodName(j.productId), t('js_' + (JOB_ST[j.status] ? j.status : 'running')), C.fmtDT(j.startedAt), j.closedAt ? C.fmtDT(j.closedAt) : '',
         j.leader, j.crew, j.grainKg, (j.alloc || []).map(a => (a.bin || a.silo) + '=' + a.kg).join('; '),
         j.sourceComps ? Object.keys(j.sourceComps).map(k => k + ': ' + compText(j.sourceComps[k])).join(' | ') : '', (j.tempered || []).join(', '), (j.bins || []).join(', '), j.m0, j.impurities, j.m1, j.feedTph, j.waterLh, j.waterL,
+        j.recipe && P.recipeSet(j.recipe) ? j.recipe.colours.join('/') + ' · ' + j.recipe.grades.join('/') : '',
+        (j.offRecipe || []).map(x => x.bin || x.silo).join(', ') + (j.offRecipeAuth ? ' (' + j.offRecipeAuth.by + ': ' + j.offRecipeAuth.reason + ')' : ''),
         isNum(j.extraction) ? j.extraction : '', isNum(j.expectedKg) ? j.expectedKg : '', isNum(j.actualKg) ? j.actualKg : '', j.closeNote || ''])]);
     const mvs = (S.moves || []).filter(m => m.t >= range[0] && m.t < range[1]).sort((a, b) => a.t - b.t);
     add(t('x_moves'), [[t('dateTime'), t('crew'), t('type'), t('dirtyBin'), t('silo'), 'kg', t('colour'), t('grade'), t('name')],
@@ -646,9 +644,8 @@ window.ProdUI = function (C) {
   // ---------- definições de produção ----------
   function settingsCard() {
     const c = S.cfgP;
-    const nExt = Object.keys(c.extraction).filter(k => isNum(c.extraction[k])).length, nRec = Object.keys(c.recipes).filter(k => P.recipeSet(c.recipes[k])).length;
     return `<section class="card"><h3>${esc(t('prodSettings'))}</h3>
-      <p class="sub">${esc(t('prodSettingsSummary', { c: lineIds().map(id => id + ' ' + fmtKg(c.lineTpd[id]) + ' t/d').join(' · '), d: fmtKg(c.dampenerMaxLh), e: nExt, r: nRec, n: C.products().length, b: c.bins.length }))}</p>
+      <p class="sub">${esc(t('prodSettingsSummary', { c: lineIds().map(id => id + ' ' + fmtKg(c.lineTpd[id]) + ' t/d').join(' · '), d: fmtKg(c.dampenerMaxLh), b: c.bins.length }))}</p>
       <button class="btn" data-nav="prodset">${esc(t('editProdSettings'))}</button></section>
       <section class="card"><h3>${esc(t('codesTitle'))}</h3>
       <p class="sub">${esc(t('codesSummary', { n: codes().filter(c => c.active !== false).length, s: S.cfgP.codesSource || '', pt: codes().filter(c => c.namePt).length, o: codes().filter(c => c.oee).length }))}</p>
@@ -660,11 +657,6 @@ window.ProdUI = function (C) {
     return `<section class="card"><h2>${esc(t('prodSettings'))}</h2><p class="sub">${esc(t('prodSettingsNote'))}</p>
       <div class="grid2">${lineIds().map(id => `<label class="fld">${esc(t('lineCap', { l: C.lineName(id) }))}<input inputmode="decimal" data-ps="tpd|${esc(id)}" value="${esc(C.fmtNum(d.lineTpd[id]))}"></label>`).join('')}
       <label class="fld">${esc(t('dampenerMax'))}<input inputmode="decimal" data-ps="damp" value="${esc(C.fmtNum(d.dampenerMaxLh))}"></label></div></section>
-      <section class="card"><h3>${esc(t('extractionAndRecipes'))}</h3><p class="sub">${esc(t('recipeHelp'))}</p>
-      ${C.products().map(p => { const r = d.recipes[p.id] || { colours: [], grades: [] }; return `<div class="param"><b>${esc(C.prodName(p.id))}</b>
-        <label class="fld">${esc(t('extraction'))} (%)<input inputmode="decimal" data-ps="ext|${esc(p.id)}" value="${esc(C.fmtNum(d.extraction[p.id]))}"></label>
-        <div class="sub">${esc(t('allowedColours'))}</div><div class="row">${P.COLOURS.map(c => `<label class="chk"><input type="checkbox" data-ps="col|${esc(p.id)}|${c}" ${r.colours.indexOf(c) >= 0 ? 'checked' : ''}> ${esc(c)}</label>`).join('')}</div>
-        <div class="sub">${esc(t('allowedGrades'))}</div><div class="row">${P.SILO_GRADES.map(g => `<label class="chk"><input type="checkbox" data-ps="gr|${esc(p.id)}|${g}" ${r.grades.indexOf(g) >= 0 ? 'checked' : ''}> ${esc(t('g_' + g))}</label>`).join('')}</div></div>`; }).join('')}</section>
       <section class="card"><h3>${esc(t('masterData'))}</h3><p class="sub">${esc(t('masterHelp'))}</p>
         <label class="fld">${esc(t('grainSilosList'))}<textarea rows="2" data-ps="grainSilos">${esc((d.grainSilos || []).join(', '))}</textarea></label>
         <p class="sub">${esc(t('binsHelp'))}</p>
@@ -686,23 +678,16 @@ window.ProdUI = function (C) {
     if (!by || !reason) return C.toast(t('needByReason'));
     const n = JSON.parse(JSON.stringify(S.cfgP));
     const bad = [];
-    n.extraction = {}; n.recipes = {};
     document.querySelectorAll('[data-ps]').forEach(el => {
       const [k, a, b] = el.dataset.ps.split('|');
       if (k === 'tpd') { const v = P.num(el.value); if (v === null || isNaN(v) || v <= 0) bad.push(t('lineCap', { l: a })); else n.lineTpd[a] = v; }
       if (k === 'damp') { const v = P.num(el.value); if (v === null || isNaN(v) || v <= 0) bad.push(t('dampenerMax')); else n.dampenerMaxLh = v; }
-      if (k === 'ext') { const v = P.num(el.value); if (v !== null) { if (isNaN(v) || v <= 0 || v > 100) bad.push(t('extraction') + ' ' + C.prodName(a)); else n.extraction[a] = v; } }
-      if (k === 'col' || k === 'gr') {
-        const r = n.recipes[a] = n.recipes[a] || { colours: [], grades: [] };
-        if (el.checked) (k === 'col' ? r.colours : r.grades).push(b);
-      }
       if (k === 'bins') { const r = P.parseBins(el.value, lineIds()); if (r.errors.length || !r.bins.length) bad.push(t('ptab_bins') + ': ' + (r.errors.join(' | ') || '—')); else n.bins = r.bins; }
       if (k === 'dirtyBins' || k === 'temperedBins') { const r = P.parseBins(el.value, lineIds()); if (r.errors.length || !r.bins.length) bad.push(t(k) + ': ' + (r.errors.join(' | ') || '—')); else n[k] = r.bins; }
       if (k === 'grainSilos') { const r = P.parseSiloList(el.value); if (r.errors.length || !r.silos.length) bad.push(t('grainSilosList') + ': ' + (r.errors.join(' | ') || '—')); else n.grainSilos = r.silos; }
       if (k === 'leader') { n.leaders = Object.assign({}, n.leaders); n.leaders[a] = el.value.trim().replace(/\s+/g, ' '); }
       if (k === 'floors') n.floors = el.value.split(',').map(x => x.trim()).filter(Boolean).filter((x, i, arr) => arr.indexOf(x) === i);
     });
-    Object.keys(n.recipes).forEach(k => { if (!n.recipes[k].colours.length && !n.recipes[k].grades.length) delete n.recipes[k]; });
     if (bad.length) return C.toast(t('limitErrors') + ': ' + bad.join('; '));
     const errs = P.validateProdConfig(n);
     if (errs.length) return C.toast(t('limitErrors') + ': ' + errs.join(', '));
@@ -781,11 +766,15 @@ window.ProdUI = function (C) {
   }
 
   // ---------- eventos ----------
-  const CLICK_SEL = '[data-ptab],[data-pact],[data-closejob],[data-jsrc],[data-jtemp],[data-trsilo],[data-emptydirty],[data-jbin],[data-jmode],[data-logact],[data-binact]';
+  const CLICK_SEL = '[data-ptab],[data-pact],[data-closejob],[data-jsrc],[data-jrc],[data-jrg],[data-jtemp],[data-trsilo],[data-emptydirty],[data-jbin],[data-jmode],[data-logact],[data-binact]';
   async function onClick(el) {
     if (el.dataset.ptab) { S.prodTab = el.dataset.ptab; C.render(); return; }
     if (el.dataset.closejob) { S.closeJob = el.dataset.closejob; keepScroll(); return; }
-    if (el.dataset.jsrc) { const f = S.jobForm, i = f.sources.indexOf(el.dataset.jsrc); if (i >= 0) { f.sources.splice(i, 1); delete f.blend[el.dataset.jsrc]; } else f.sources.push(el.dataset.jsrc); f.offRecipeAuth = null; keepScroll(); return; }
+    if (el.dataset.jsrc) { const f = S.jobForm, i = f.sources.indexOf(el.dataset.jsrc); if (i >= 0) { f.sources.splice(i, 1); delete f.blend[el.dataset.jsrc]; } else f.sources.push(el.dataset.jsrc); keepScroll(); return; }
+    if (el.dataset.jrc || el.dataset.jrg) {
+      const list = el.dataset.jrc ? S.jobForm.recipe.colours : S.jobForm.recipe.grades, v = el.dataset.jrc || el.dataset.jrg;
+      const i = list.indexOf(v); if (i >= 0) list.splice(i, 1); else list.push(v); keepScroll(); return;
+    }
     if (el.dataset.jtemp) { const f = S.jobForm, i = f.tempered.indexOf(el.dataset.jtemp); if (i >= 0) f.tempered.splice(i, 1); else f.tempered.push(el.dataset.jtemp); keepScroll(); return; }
     if (el.dataset.trsilo) { const f = S.trForm, i = f.silos.indexOf(el.dataset.trsilo); if (i >= 0) f.silos.splice(i, 1); else f.silos.push(el.dataset.trsilo); f.silosConfirmed = false; keepScroll(); return; }
     if (el.dataset.emptydirty) { S.emptyBin = el.dataset.emptydirty; keepScroll(); return; }
@@ -817,8 +806,6 @@ window.ProdUI = function (C) {
       case 'cancelba': S.binAct = null; keepScroll(); return;
       case 'saveprodset': return saveProdSet();
       case 'savecodes': return saveCodes();
-      case 'authblend': return authorizeBlend();
-      case 'removeauth': S.jobForm.offRecipeAuth = null; keepScroll(); return;
       case 'savereading': return saveReading(el.dataset.uid);
     }
   }

@@ -182,14 +182,12 @@ t('estado do silo de milho sujo: entradas, ordens, vazio', () => {
 // ---------- ordens a partir dos silos de milho sujo ----------
 function ctx(extra) {
   const cfgP = P.defaultProdConfig();
-  cfgP.recipes.super = { colours: ['Branco'], grades: ['G1'] };
-  cfgP.extraction.super = 70;
   return Object.assign({ cfgP, millType: 'maize', jobs: [], binEvents: [], shiftStart: T0 + 3600000,
     moves: [mv('B01', [part('S01', 60000)], T0 + 100), mv('B02', [part('S02', 100000)], T0 + 100),
       mv('B03', [part('S03', 100000, 'Amarelo')], T0 + 100), mv('B04', [part('S04', 100000, 'Branco', 'OFF')], T0 + 100)] }, extra || {});
 }
 const baseJob = () => ({ productId: 'super', lineId: 'C', grainKg: '100.000', sources: ['B01', 'B02'], tempered: ['B05'], bins: ['B45', 'B44'],
-  m0: '12,0', impurities: '1,5', m1: '16', feedTph: '' });
+  m0: '12,0', impurities: '1,5', m1: '16', feedTph: '', recipe: { colours: ['Branco'], grades: ['G1'] }, targetExtraction: '70' });
 
 t('ordem válida: repartição pelos silos de moagem, água, caudal, produto esperado', () => {
   const r = P.validateJob(baseJob(), ctx());
@@ -214,10 +212,11 @@ t('grão insuficiente nos silos de moagem → seleccionar mais', () => {
   assert.ok(r.errors.some(x => x.code === 'source_short' && x.short === 10000));   // 60 000 + 50 000
 });
 
-t('conteúdo do silo de moagem fora da receita bloqueia; vazio bloqueia', () => {
+t('conteúdo fora da receita da ordem: aviso, não bloqueia (v1.4.0); silo vazio bloqueia', () => {
   const j = baseJob(); j.sources = ['B03', 'B04'];
-  const inc = P.validateJob(j, ctx()).errors.filter(x => x.code === 'source_incompatible');
-  assert.deepStrictEqual(inc.map(x => [x.bin, x.why, x.canAuth]), [['B03', 'colour', true], ['B04', 'grade', true]]);
+  const r = P.validateJob(j, ctx());
+  assert.ok(!codes(r).includes('source_incompatible'));
+  assert.deepStrictEqual(r.calc.offRecipe.map(x => [x.bin, x.items[0].why]), [['B03', 'colour'], ['B04', 'grade']]);
   const c = ctx(); c.moves = c.moves.filter(m => m.binId !== 'B02');
   assert.ok(P.validateJob(baseJob(), c).errors.some(x => x.code === 'source_empty' && x.bin === 'B02'));
 });
@@ -244,11 +243,24 @@ t('silo de produto que a linha não alimenta bloqueia', () => {
   assert.ok(codes(P.validateJob(j, ctx())).includes('bin_line'));
 });
 
-t('receita e campos em falta', () => {
-  const j = baseJob(); j.productId = 'fuba1'; j.m0 = ''; j.impurities = 'x'; j.sources = [];
+t('receita e extracção da ordem: obrigatórias (v1.4.0), campos em falta', () => {
+  const j = baseJob(); j.productId = 'fuba1'; j.m0 = ''; j.impurities = 'x'; j.sources = []; j.recipe = { colours: [], grades: ['G1'] }; j.targetExtraction = '';
   const r = P.validateJob(j, ctx());
   ['recipe_not_set', 'no_source', 'need', 'bad'].forEach(c => assert.ok(codes(r).includes(c), c));
-  assert.ok(r.warnings.some(w => w.code === 'no_extraction'));
+  assert.ok(r.errors.some(e => e.code === 'need' && e.field === 'targetExtraction'));
+  assert.strictEqual(r.calc.expectedKg, undefined);
+  // a receita vem da ordem, não das Definições: configuração antiga é ignorada
+  const c = ctx(); c.cfgP.recipes.super = { colours: ['Amarelo'], grades: ['OFF'] }; c.cfgP.extraction.super = 50;
+  const r2 = P.validateJob(baseJob(), c);
+  assert.deepStrictEqual(codes(r2), []); assert.strictEqual(r2.calc.extraction, 70); assert.strictEqual(r2.calc.expectedKg, 70000);
+  // extracção: limites e vírgula decimal
+  ['0', '100,5', 'abc'].forEach(v => assert.ok(P.validateJob(Object.assign(baseJob(), { targetExtraction: v }), ctx()).errors.some(e => e.code === 'bad' && e.field === 'targetExtraction'), v));
+  const r3 = P.validateJob(Object.assign(baseJob(), { targetExtraction: '72,5' }), ctx());
+  assert.strictEqual(r3.calc.extraction, 72.5); assert.strictEqual(r3.calc.expectedKg, 72500);
+  assert.strictEqual(P.validateJob(Object.assign(baseJob(), { targetExtraction: '100' }), ctx()).calc.extraction, 100);
+  // cor/grau desconhecidos na receita
+  assert.ok(codes(P.validateJob(Object.assign(baseJob(), { recipe: { colours: ['Roxo'], grades: ['G1'] } }), ctx())).includes('recipe_bad'));
+  assert.ok(codes(P.validateJob(Object.assign(baseJob(), { recipe: { colours: ['Branco'], grades: ['REJ'] } }), ctx())).includes('recipe_bad'));
 });
 
 t('molhador acima de 2 500 L/h bloqueia', () => {
@@ -288,8 +300,7 @@ t('capacidade dos silos de produto', () => {
   const r2 = P.validateJob(j, ctx({ binEvents: [{ binId: 'B34', type: 'FILL', productId: 'super', t: 1 }] }));
   assert.ok(!codes(r2).includes('bin_capacity'));
   assert.ok(r2.warnings.some(w => w.code === 'bin_level_unknown'));
-  const c = ctx(); delete c.cfgP.extraction.super;
-  assert.ok(!codes(P.validateJob(Object.assign(baseJob(), { bins: ['B34'] }), c)).includes('bin_capacity'));
+  assert.ok(!codes(P.validateJob(Object.assign(baseJob(), { bins: ['B34'], targetExtraction: '' }), ctx())).includes('bin_capacity'));
 });
 
 t('mistura: percentagens, humidade ponderada, stock por silo de moagem', () => {
@@ -312,23 +323,39 @@ t('mistura: percentagens, humidade ponderada, stock por silo de moagem', () => {
   assert.ok(codes(P.validateJob(j, ctx())).includes('blend_pct'));
 });
 
-t('mistura de cor/grau fora da receita só com autorização', () => {
+t('cor/grau fora da receita da ordem: registado como aviso, não bloqueia (opção 2, 09-10-2026)', () => {
   const j = baseJob(); j.mode = 'blend'; j.sources = ['B02', 'B03', 'B04'];
   j.blend = { B02: { pct: '50', m0: '12', impurities: '1' }, B03: { pct: '25', m0: '12', impurities: '1' }, B04: { pct: '25', m0: '12', impurities: '1' } };
-  const inc = P.validateJob(j, ctx()).errors.filter(e => e.code === 'source_incompatible');
-  assert.deepStrictEqual(inc.map(e => e.why), ['colour', 'grade']);
-  assert.ok(inc.every(e => e.canAuth));
-  j.offRecipeAuth = { by: 'Sup', reason: '' };
-  assert.ok(codes(P.validateJob(j, ctx())).includes('source_incompatible'));
-  j.offRecipeAuth = { by: 'Sup', reason: 'falta de milho branco G1' };
-  const r2 = P.validateJob(j, ctx());
-  assert.ok(!codes(r2).includes('source_incompatible'));
-  assert.deepStrictEqual(r2.calc.offRecipe.map(x => x.bin), ['B03', 'B04']);
-  assert.ok(r2.warnings.some(w => w.code === 'off_recipe_auth'));
-  // outro cereal num silo de moagem nunca é autorizável
+  const r = P.validateJob(j, ctx());
+  assert.deepStrictEqual(codes(r), []);
+  assert.deepStrictEqual(r.calc.offRecipe.map(x => x.bin), ['B03', 'B04']);
+  assert.deepStrictEqual(r.calc.offRecipe.map(x => x.items[0].why), ['colour', 'grade']);
+  const w = r.warnings.find(x => x.code === 'off_recipe'); assert.ok(w); assert.strictEqual(w.bins, 'B03, B04');
+  // autorização antiga é ignorada (já não existe)
+  j.offRecipeAuth = { by: 'Sup', reason: 'x' };
+  assert.deepStrictEqual(codes(P.validateJob(j, ctx())), []);
+  // receita da ordem que inclui amarelo e OFF → sem aviso
+  j.recipe = { colours: ['Branco', 'Amarelo'], grades: ['G1', 'OFF'] };
+  const r2 = P.validateJob(j, ctx()); assert.deepStrictEqual(r2.calc.offRecipe, []); assert.ok(!r2.warnings.some(x => x.code === 'off_recipe'));
+  // outro cereal num silo de moagem bloqueia sempre
   const c = ctx(); c.moves.push(mv('B02', [{ silo: 'S06', kg: 1000, cereal: 'Trigo', colour: '', grade: 'G1' }], T0 + 150));
   const r3 = P.validateJob(j, c);
-  assert.ok(r3.errors.some(e => e.code === 'source_incompatible' && e.bin === 'B02' && !e.canAuth));
+  assert.ok(r3.errors.some(e => e.code === 'source_incompatible' && e.bin === 'B02' && e.why === 'other_cereal'));
+});
+
+t('códigos de paragem v2: 60 códigos, nomes PT pré-AO90, fonte', () => {
+  const L = P.DOWNTIME_CODES;
+  assert.strictEqual(L.length, 60); assert.strictEqual(new Set(L.map(c => c.code)).size, 60);
+  assert.ok(L.every(c => c.name && c.namePt && c.oee === null && c.active === true));
+  const f = c => P.findCode(c);
+  assert.strictEqual(f('P23').name, 'DEGERMINATOR CHOKING'); assert.strictEqual(f('P23').namePt, 'DESGERMINADOR ENTUPIDO');
+  assert.strictEqual(f('P20').namePt, 'DISPARO DO DISJUNTOR'); assert.strictEqual(f('A05').namePt, 'CLASSIFICADORES');
+  assert.strictEqual(f('P24').v1, 'Unplanned - Operating Problems'); assert.strictEqual(f('P24').v2, 'Process');
+  assert.strictEqual(f('P17').v2, null);
+  ['DIREÇÃO', 'ELÉTRIC', 'ATUAÇÃO', 'PROJETO', 'INSPEÇÃO', 'COLETOR'].forEach(w => assert.ok(!L.some(c => c.namePt.includes(w)), w));
+  assert.strictEqual(P.DOWNTIME_SOURCE, 'Downtime Codes v2 (Zhax, 09-10-2026)');
+  assert.ok(P.OLD_DOWNTIME_SOURCES.includes('Downtime_Codes.xlsx (08-10-2026)'));
+  assert.deepStrictEqual(P.validateCodes ? P.validateCodes(P.defaultCodes()) : [], []);
 });
 
 t('humidade do milho por turno: recalcula o caudal de água', () => {
@@ -401,16 +428,16 @@ t('diário: validação, anulação e resumo do turno', () => {
   assert.deepStrictEqual(s.jobs.map(j => j.uid), ['j1']);
 });
 
-t('códigos de paragem FMO (Downtime_Codes.xlsx)', () => {
+t('códigos de paragem FMO v2 (estrutura)', () => {
   assert.strictEqual(P.DOWNTIME_CODES.length, 60);
   assert.strictEqual(new Set(P.DOWNTIME_CODES.map(c => c.code)).size, 60);
   assert.ok(P.DOWNTIME_CODES.every(c => /^[PAO]\d{2}$/.test(c.code) && c.code === c.code.trim()));
   assert.ok(P.DOWNTIME_CODES.every(c => P.TIER3.indexOf(c.tier3) >= 0));
   assert.ok(P.DOWNTIME_CODES.every(c => c.v2 === null || P.V2_CATS.indexOf(c.v2) >= 0));
-  assert.deepStrictEqual(P.findCode('A02'), { code: 'A02', name: 'ASPIRATION FAN', namePt: null, v1: 'Unplanned - Mechanical Breakdown', v2: 'Breakdown', tier3: 'Breakdown', oee: null, active: true });
-  assert.strictEqual(P.findCode('P24').v2, null);               // célula só com traços no ficheiro
+  assert.deepStrictEqual(P.findCode('A02'), { code: 'A02', name: 'ASPIRATION FAN', namePt: 'VENTILADOR DE ASPIRAÇÃO', v1: 'Unplanned - Mechanical Breakdown', v2: 'Breakdown', tier3: 'Breakdown', oee: null, active: true });
+  assert.strictEqual(P.findCode('P24').v2, 'Process');          // v2 (Zhax, 09-10-2026)
   assert.strictEqual(P.findCode('O04').tier3, 'Power Failure');
-  assert.ok(P.DOWNTIME_CODES.every(c => c.oee === null && c.namePt === null && !('decision' in c)));
+  assert.ok(P.DOWNTIME_CODES.every(c => c.oee === null && typeof c.namePt === 'string' && !('decision' in c)));
   assert.deepStrictEqual(P.validateCodes(P.defaultCodes()), []);
 });
 
