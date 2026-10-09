@@ -26,7 +26,7 @@ window.ProdUI = function (C) {
     if (!Array.isArray(S.cfgP.downtimeCodes)) { S.cfgP.downtimeCodes = P.defaultCodes(); S.cfgP.codesSource = P.DOWNTIME_SOURCE; }   // configuração anterior à v1.2
     // configuração anterior à v1.3: acrescenta os dados mestre em falta (não altera listas já existentes)
     const d = P.defaultProdConfig();
-    ['grainSilos', 'dirtyBins', 'temperedBins', 'masterSource'].forEach(k => { if (S.cfgP[k] === undefined) S.cfgP[k] = d[k]; });
+    ['grainSilos', 'dirtyBins', 'temperedBins', 'masterSource', 'leaders'].forEach(k => { if (S.cfgP[k] === undefined) S.cfgP[k] = d[k]; });
     S.deviceId = await DB.getConfig('deviceId');
     if (!S.deviceId) {
       S.deviceId = 'd' + Array.from(crypto.getRandomValues(new Uint8Array(4))).map(x => x.toString(16).padStart(2, '0')).join('');
@@ -51,6 +51,15 @@ window.ProdUI = function (C) {
   const lineIds = () => S.cfg.lines.map(l => l.id);
   const binById = id => S.cfgP.bins.find(b => b.id === id);
   const prodOrDash = id => id ? C.prodName(id) : '—';
+  // Chefe de turno: lista (Definições) quando definida; senão texto livre. Por defeito: chefe da turma seleccionada.
+  const defLeader = () => P.crewLeader(S.cfgP, S.crew) || S.operator;
+  function leaderField(attr, value) {
+    const list = P.leaderNames(S.cfgP);
+    if (!list.length) return `<input ${attr} value="${esc(value)}">`;
+    const known = list.some(x => x.name === value);
+    return `<select ${attr}><option value="">—</option>${list.map(x => `<option value="${esc(x.name)}" ${x.name === value ? 'selected' : ''}>${esc(x.name)} (${esc(t('crew'))} ${esc(x.crew)})</option>`).join('')}${value && !known ? `<option value="${esc(value)}" selected>${esc(value)}</option>` : ''}</select>`;
+  }
+  const leaderCrewOf = name => { const x = P.leaderNames(S.cfgP).find(l => l.name === name); return x ? x.crew : null; };
 
   // ---------- vista principal ----------
   function view() {
@@ -104,7 +113,7 @@ window.ProdUI = function (C) {
         : (st.inKg > 0 || st.kg !== 0 ? `<div class="row"><button class="btn ghost small" data-emptydirty="${esc(b.id)}">${esc(t('binEmptyBtn'))}</button></div>` : '')}</div>`;
   }
   const tctxFor = () => ({ cfgP: S.cfgP, millType: S.cfg.millType, snapshot: snapshot(), moves: S.moves, jobs: S.jobs, shiftStart: L.shiftOf(now()).start });
-  function newTransferForm() { S.trForm = { binId: '', silos: [], kg: '', silosConfirmed: false, by: S.operator }; }
+  function newTransferForm() { S.trForm = { binId: '', silos: [], kg: '', silosConfirmed: false, by: defLeader() }; }
   function transferFormView() {
     const f = S.trForm, sn = snapshot();
     const siloRows = sn ? sn.silos.map(s => {
@@ -198,7 +207,7 @@ window.ProdUI = function (C) {
       ${closing ? `<div class="holdform">
         <label class="fld">${esc(t('closeAs'))}<select id="cj_status"><option value="done">${esc(t('js_done'))}</option><option value="cancelled">${esc(t('js_cancelled'))}</option></select></label>
         <label class="fld">${esc(t('actualGrain'))} (kg) <small>${esc(t('optional'))}</small><input inputmode="decimal" id="cj_kg"></label>
-        <label class="fld req">${esc(t('shiftLeader'))}<input id="cj_by" value="${esc(S.operator)}"></label>
+        <label class="fld req">${esc(t('shiftLeader'))}${leaderField('id="cj_by"', defLeader())}</label>
         <label class="fld">${esc(t('notes'))}<textarea id="cj_note" rows="2"></textarea></label>
         <button class="btn primary" data-pact="closejob">${esc(t('closeJob'))}</button> <button class="btn ghost" data-pact="cancelclose">${esc(t('cancel'))}</button>
       </div>` : ''}
@@ -253,7 +262,7 @@ window.ProdUI = function (C) {
   function newJobForm() {
     const line = S.cfg.lines.find(l => !runningJob(l.id));
     S.jobForm = { productId: '', lineId: line ? line.id : '', grainKg: '', mode: 'seq', sources: [], blend: {}, tempered: [], bins: [], m0: '', impurities: '', m1: '', feedTph: '',
-      offRecipeAuth: null, leader: S.operator };
+      offRecipeAuth: null, leader: defLeader() };
   }
   const ctxFor = () => ({ cfgP: S.cfgP, millType: S.cfg.millType, moves: S.moves, jobs: S.jobs, binEvents: S.binEvents, now: now(), shiftStart: L.shiftOf(now()).start });
   function jobFormView() {
@@ -307,7 +316,8 @@ window.ProdUI = function (C) {
     <section class="card"><h3>${esc(t('toBins'))}</h3>${f.lineId ? '' : `<p class="sub">${esc(t('pickLineFirst'))}</p>`}<div class="picks">${binRows}</div>
       <p class="sub">${esc(t('binSourceNote', { s: S.cfgP.binSource || '' }))}</p></section>
     <section class="card">
-      <label class="fld req">${esc(t('shiftLeader'))}<input data-jfi="leader" value="${esc(f.leader)}"></label>
+      <label class="fld req">${esc(t('shiftLeader'))}${leaderField('data-jfl="leader"', f.leader)}</label>
+      ${!P.leaderNames(S.cfgP).length ? `<p class="sub">${esc(t('leadersNotSet'))}</p>` : ''}
       <div id="jobCheck">${jobCheckHtml()}</div>
       <button class="btn primary big" data-pact="startjob">${esc(t('startJob'))}</button>
       <button class="btn ghost" data-pact="canceljob">${esc(t('cancel'))}</button></section>`;
@@ -384,7 +394,7 @@ window.ProdUI = function (C) {
       waterL: r.calc.waterL, waterLh: r.calc.waterLh, expectedKg: isNum(r.calc.expectedKg) ? r.calc.expectedKg : null,
       extraction: r.calc.extraction, dampenerMaxLh: S.cfgP.dampenerMaxLh, recipe: JSON.parse(JSON.stringify(S.cfgP.recipes[f.productId])),
       warnings: r.warnings.map(w => w.code + (w.bin ? ':' + w.bin : '')),
-      leader: String(f.leader).trim()
+      leader: String(f.leader).trim(), leaderCrew: leaderCrewOf(String(f.leader).trim())
     });
     job.readings = [{ t: tms, crew: S.crew, period: job.period, prodDay: job.prodDay, m0: job.m0, waterLh: job.waterLh, by: job.leader, kind: 'start' }];
     const ops = [{ store: 'jobs', op: 'add', obj: job }].concat(f.bins.map((b, i) => ({ store: 'binEvents', op: 'add',
@@ -404,7 +414,7 @@ window.ProdUI = function (C) {
     if (!by) return C.toast(t('needLeader'));
     const kg = P.num($('#cj_kg').value, 'kg');
     if (kg !== null && (isNaN(kg) || kg < 0)) return C.toast(t('fixInvalid'));
-    const nj = Object.assign({}, j, { status, closedAt: now(), closedBy: by, actualKg: kg, closeNote: $('#cj_note').value.trim() });
+    const nj = Object.assign({}, j, { status, closedAt: now(), closedBy: by, closedByCrew: leaderCrewOf(by), actualKg: kg, closeNote: $('#cj_note').value.trim() });
     try { await DB.put('jobs', nj); } catch (e) { return C.toast(t('saveFailed')); }
     const st = S.lineState[j.lineId];
     if (st && st.running && st.productId === j.productId) {
@@ -661,6 +671,8 @@ window.ProdUI = function (C) {
         <label class="fld">${esc(t('dirtyBins'))}<textarea rows="2" data-ps="dirtyBins">${esc(P.binsText(d.dirtyBins || []))}</textarea></label>
         <label class="fld">${esc(t('temperedBins'))}<textarea rows="2" data-ps="temperedBins">${esc(P.binsText(d.temperedBins || []))}</textarea></label>
         <label class="fld">${esc(t('ptab_bins'))}<textarea rows="4" data-ps="bins">${esc(P.binsText(d.bins))}</textarea></label>
+        <h3>${esc(t('leaders'))}</h3><p class="sub">${esc(t('leadersHelp'))}</p>
+        <div class="grid2">${['A', 'B', 'C', 'D'].map(k => `<label class="fld">${esc(t('crew'))} ${k}<input data-ps="leader|${k}" value="${esc((d.leaders || {})[k] || '')}" maxlength="60"></label>`).join('')}</div>
         <h3>${esc(t('floors'))}</h3><p class="sub">${esc(t('floorsHelp'))}</p>
         <label class="fld"><input data-ps="floors" value="${esc((d.floors || []).join(', '))}"></label></section>
       <section class="card"><label class="fld req">${esc(t('supervisor'))}<input id="psBy"></label>
@@ -687,6 +699,7 @@ window.ProdUI = function (C) {
       if (k === 'bins') { const r = P.parseBins(el.value, lineIds()); if (r.errors.length || !r.bins.length) bad.push(t('ptab_bins') + ': ' + (r.errors.join(' | ') || '—')); else n.bins = r.bins; }
       if (k === 'dirtyBins' || k === 'temperedBins') { const r = P.parseBins(el.value, lineIds()); if (r.errors.length || !r.bins.length) bad.push(t(k) + ': ' + (r.errors.join(' | ') || '—')); else n[k] = r.bins; }
       if (k === 'grainSilos') { const r = P.parseSiloList(el.value); if (r.errors.length || !r.silos.length) bad.push(t('grainSilosList') + ': ' + (r.errors.join(' | ') || '—')); else n.grainSilos = r.silos; }
+      if (k === 'leader') { n.leaders = Object.assign({}, n.leaders); n.leaders[a] = el.value.trim().replace(/\s+/g, ' '); }
       if (k === 'floors') n.floors = el.value.split(',').map(x => x.trim()).filter(Boolean).filter((x, i, arr) => arr.indexOf(x) === i);
     });
     Object.keys(n.recipes).forEach(k => { if (!n.recipes[k].colours.length && !n.recipes[k].grades.length) delete n.recipes[k]; });
@@ -820,6 +833,7 @@ window.ProdUI = function (C) {
       const j = S.jobs.find(x => x.uid === el.dataset.rd), box = document.getElementById('rdc_' + el.dataset.rd);
       if (j && box) box.innerHTML = readPreview(j, P.readingCalc(j, el.value)); return true;
     }
+    if (el.dataset.jfl && S.jobForm && el.tagName === 'INPUT') { S.jobForm.leader = el.value; const b = $('#jobCheck'); if (b) b.innerHTML = jobCheckHtml(); return true; }
     if (el.dataset.tri && S.trForm) { S.trForm[el.dataset.tri] = el.value; const b = $('#trCheck'); if (b) b.innerHTML = trCheckHtml(); return true; }
     if (el.dataset.jfi && S.jobForm) { S.jobForm[el.dataset.jfi] = el.value; const b = $('#jobCheck'); if (b) b.innerHTML = jobCheckHtml(); return true; }
     if (el.dataset.lf && S.logForm && el.tagName !== 'SELECT') { S.logForm[el.dataset.lf] = el.value; return true; }
@@ -837,6 +851,7 @@ window.ProdUI = function (C) {
       }
       keepScroll(); return true;
     }
+    if (el.dataset.jfl && S.jobForm) { S.jobForm.leader = el.value; const b = $('#jobCheck'); if (b) b.innerHTML = jobCheckHtml(); return true; }
     if (el.dataset.trf && S.trForm) { S.trForm[el.dataset.trf] = el.type === 'checkbox' ? el.checked : el.value; keepScroll(); return true; }
     if (el.dataset.lf && S.logForm && el.tagName === 'SELECT') { S.logForm[el.dataset.lf] = el.value; keepScroll(); return true; }
     if (el.id === 'logDay') { S.logShift = Object.assign(logShift(), { day: el.value || logShift().day }); C.render(); return true; }

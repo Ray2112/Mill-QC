@@ -1,6 +1,8 @@
 /* Textos de Produção PT (pré-AO90) / EN — chaves idênticas. Junta-se a window.I18N. */
 (function () {
   const pt = {
+    leaders: 'Chefes de turno (por turma)', leadersHelp: 'Ficam só neste telemóvel e nas suas cópias de segurança (não vão para o código da app, que é público). Com a lista preenchida, "Chefe de turno" passa a ser escolhido da lista; por defeito, o chefe da turma seleccionada.',
+    leadersNotSet: 'Chefes de turno não definidos — Definições → Produção.',
     nonCanonical: 'Silos na app de Silos com ID fora da lista canónica: {s}. Renomeie-os na app de Silos ({list}) — não podem ser usados.',
     newTransfer: 'Transferência para silo de milho sujo', dirtyBins: 'Silos de milho sujo', dirtyBin: 'Silo de milho sujo', temperedBins: 'Silos de milho temperado', temperedBin: 'Silo de milho temperado',
     capNotSet: 'capacidade não definida', temperedNote: 'Os silos de milho temperado são escolhidos na ordem; o seu nível não é seguido pela app.',
@@ -112,6 +114,8 @@
     jobOnLine: 'Ordem: {p} · {kg} kg · água {w} L/h · desde {h}'
   };
   const en = {
+    leaders: 'Shift leaders (per crew)', leadersHelp: 'Stored only on this phone and its backups (not in the app code, which is public). Once filled, "Shift leader" is picked from the list; by default the leader of the selected crew.',
+    leadersNotSet: 'Shift leaders not set — Settings → Production.',
     nonCanonical: 'Silos in the Silos app with an ID outside the canonical list: {s}. Rename them in the Silos app ({list}) — they cannot be used.',
     newTransfer: 'Transfer to dirty maize bin', dirtyBins: 'Dirty maize bins', dirtyBin: 'Dirty maize bin', temperedBins: 'Tempered maize bins', temperedBin: 'Tempered maize bin',
     capNotSet: 'capacity not set', temperedNote: 'Tempered maize bins are chosen on the job; their level is not tracked by the app.',

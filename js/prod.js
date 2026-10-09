@@ -116,6 +116,8 @@
       temperedBins: copyBins(DEFAULT_TEMPERED_BINS), // silos de milho temperado
       masterSource: MASTER_SOURCE,
       floors: [],                      // pisos para limpeza — lista definida pela empresa
+      // chefes de turno por turma — vazios: os nomes NÃO vão no código (repositório público); introduzidos no telemóvel
+      leaders: { A: '', B: '', C: '', D: '' },
       downtimeCodes: defaultCodes(),   // editáveis com autorização
       codesSource: DOWNTIME_SOURCE
     };
@@ -548,6 +550,7 @@
     // o mesmo ID não pode existir em duas listas
     const all = [].concat(c.grainSilos || [], (c.dirtyBins || []).map(b => b.id), (c.temperedBins || []).map(b => b.id), (c.bins || []).map(b => b.id));
     if (new Set(all).size !== all.length) e.push('dupIds');
+    Object.keys(c.leaders || {}).forEach(k => { const v = c.leaders[k]; if (['A', 'B', 'C', 'D'].indexOf(k) < 0 || typeof v !== 'string' || v.length > 60) e.push('leader:' + k); });
     return e;
   }
   // Lista de alterações (auditoria)
@@ -561,6 +564,7 @@
     keys(a.recipes, b.recipes).forEach(k => cmp('recipe.' + k, (a.recipes || {})[k], (b.recipes || {})[k]));
     cmp('bins', binsText(a.bins || []), binsText(b.bins || []));
     cmp('floors', a.floors || [], b.floors || []);
+    ['A', 'B', 'C', 'D'].forEach(k => cmp('leader.' + k, ((a.leaders || {})[k]) || '', ((b.leaders || {})[k]) || ''));
     cmp('grainSilos', (a.grainSilos || []).join(','), (b.grainSilos || []).join(','));
     cmp('dirtyBins', binsText(a.dirtyBins || []), binsText(b.dirtyBins || []));
     cmp('temperedBins', binsText(a.temperedBins || []), binsText(b.temperedBins || []));
@@ -632,6 +636,10 @@
     return { issues, acts, jobs, downtimeMin: downtime, byV2, byOee, openIssues: issues.filter(i => i.status !== 'closed').length };
   }
 
+  // Chefe de turno da turma (vazio se não definido)
+  const crewLeader = (cfgP, crew) => ((cfgP && cfgP.leaders) || {})[crew] || '';
+  const leaderNames = cfgP => ['A', 'B', 'C', 'D'].map(k => ({ crew: k, name: crewLeader(cfgP, k) })).filter(x => x.name);
+
   // ---------- identificadores (formato preparado para sincronização) ----------
   function uid(deviceId, now, rnd) {
     const r = rnd || Math.random().toString(36).slice(2, 8);
@@ -649,7 +657,7 @@
     return okJobs && okBin && okLog;
   }
 
-  const api = { VERSION, COLOURS, SILO_GRADES, GRAIN_SILOS, DEFAULT_DIRTY_BINS, DEFAULT_TEMPERED_BINS, MASTER_SOURCE, dirtyBinState, validateTransfer, transferredAfter, parseSiloList, nonCanonical, DOWNTIME_CODES, DOWNTIME_SOURCE, TIER3, V2_CATS, OEE_TREAT, defaultCodes, findCode, validateCodes, ACT_TYPES, JOB_STATUS, DEFAULT_BINS, BIN_SOURCE,
+  const api = { VERSION, COLOURS, SILO_GRADES, GRAIN_SILOS, DEFAULT_DIRTY_BINS, DEFAULT_TEMPERED_BINS, MASTER_SOURCE, dirtyBinState, validateTransfer, crewLeader, leaderNames, transferredAfter, parseSiloList, nonCanonical, DOWNTIME_CODES, DOWNTIME_SOURCE, TIER3, V2_CATS, OEE_TREAT, defaultCodes, findCode, validateCodes, ACT_TYPES, JOB_STATUS, DEFAULT_BINS, BIN_SOURCE,
     defaultProdConfig, num, waterFor, waterRate, defaultFeedTph, siloKg, snapshotFromSilosBackup,
     availableKg, allocate, recipeSet, recipeFit, binState, binCheck, validateJob, readingCalc, needsShiftReading, parseBins, binsText,
     validateProdConfig, prodConfigDiff, effectiveLog, validateIssue, validateActivity, shiftSummary, uid, validProdBackup };

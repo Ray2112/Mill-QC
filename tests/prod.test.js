@@ -431,6 +431,18 @@ t('códigos editáveis: validação, inactivos, diferenças', () => {
   assert.deepStrictEqual(d.sort(), ['code.A22.active', 'code.P01.namePt', 'code.P01.oee', 'code.P25.active', 'code.P25.name', 'code.P25.oee', 'code.P25.v2'].sort());
 });
 
+t('chefes de turno: vazios por defeito, por turma, diferenças', () => {
+  const a = P.defaultProdConfig();
+  assert.deepStrictEqual(a.leaders, { A: '', B: '', C: '', D: '' });       // nomes não vão no código
+  assert.deepStrictEqual(P.leaderNames(a), []);
+  const b = JSON.parse(JSON.stringify(a)); b.leaders.A = 'Nome A'; b.leaders.C = 'Nome C';
+  assert.strictEqual(P.crewLeader(b, 'C'), 'Nome C'); assert.strictEqual(P.crewLeader(b, 'B'), '');
+  assert.deepStrictEqual(P.leaderNames(b), [{ crew: 'A', name: 'Nome A' }, { crew: 'C', name: 'Nome C' }]);
+  assert.deepStrictEqual(P.prodConfigDiff(a, b).map(x => x.field), ['leader.A', 'leader.C']);
+  assert.deepStrictEqual(P.validateProdConfig(b), []);
+  b.leaders.X = 'y'; assert.ok(P.validateProdConfig(b).includes('leader:X'));
+});
+
 t('identificador e validação da cópia', () => {
   assert.strictEqual(P.uid('abc', 36 * 36, 'r1'), 'abc-100-r1');
   assert.ok(P.validProdBackup({}));
