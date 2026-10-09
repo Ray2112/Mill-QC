@@ -26,7 +26,7 @@ window.ProdUI = function (C) {
     if (!Array.isArray(S.cfgP.downtimeCodes)) { S.cfgP.downtimeCodes = P.defaultCodes(); S.cfgP.codesSource = P.DOWNTIME_SOURCE; }   // configuração anterior à v1.2
     // configuração anterior à v1.3: acrescenta os dados mestre em falta (não altera listas já existentes)
     const d = P.defaultProdConfig();
-    ['grainSilos', 'dirtyBins', 'temperedBins', 'masterSource', 'leaders'].forEach(k => { if (S.cfgP[k] === undefined) S.cfgP[k] = d[k]; });
+    ['grainSilos', 'dirtyBins', 'temperedBins', 'masterSource', 'leaders', 'dampenerMaxLhByLine'].forEach(k => { if (S.cfgP[k] === undefined) S.cfgP[k] = d[k]; });
     S.deviceId = await DB.getConfig('deviceId');
     if (!S.deviceId) {
       S.deviceId = 'd' + Array.from(crypto.getRandomValues(new Uint8Array(4))).map(x => x.toString(16).padStart(2, '0')).join('');
@@ -229,7 +229,7 @@ window.ProdUI = function (C) {
     const rs = (j.readings || []).slice().sort((a, b) => a.t - b.t);
     const need = P.needsShiftReading(j, L.shiftOf(now()).start);
     const last = rs[rs.length - 1];
-    const prev = S.readForm && S.readForm.uid === j.uid ? P.readingCalc(j, S.readForm.m0) : null;
+    const prev = S.readForm && S.readForm.uid === j.uid ? P.readingCalc(j, S.readForm.m0, S.cfgP) : null;
     return `<div class="due"><div class="sub">${esc(t('maizeMoisture'))}</div>
       ${need ? `<div class="banner b-warn">${esc(t('needReading'))}</div>` : ''}
       ${rs.map(r => `<div class="kv"><span>${esc(C.fmtDT(r.t))} · ${esc(t('crew'))} ${esc(r.crew || '—')}${r.kind === 'start' ? ' · ' + esc(t('atStart')) : ''}</span><b class="${r.over ? 'txt-reject' : ''}">${esc(C.fmtNum(r.m0))} % → ${fmtKg(r.waterLh)} L/h</b></div>`).join('')}
@@ -241,13 +241,13 @@ window.ProdUI = function (C) {
   function readPreview(j, c) {
     if (!c) return '';
     if (c.error) return `<small class="txt-reject">${esc(t('invalid'))}</small>`;
-    return `<small class="${c.over ? 'txt-reject' : ''}">${esc(t('newWaterRate', { lh: fmtKg(c.waterLh), m1: C.fmtNum(j.m1), max: fmtKg(j.dampenerMaxLh) }))}${c.over ? ' — ' + esc(t('overDampener')) : ''}${c.noWater ? ' — ' + esc(t('jw_no_water')) : ''}</small>`;
+    return `<small class="${c.over ? 'txt-reject' : ''}">${esc(t('newWaterRate', { lh: fmtKg(c.waterLh), m1: C.fmtNum(j.m1), max: fmtKg(c.max) }))}${c.over ? ' — ' + esc(t('overDampener')) : ''}${c.noWater ? ' — ' + esc(t('jw_no_water')) : ''}</small>`;
   }
   async function saveReading(uid) {
     const j = S.jobs.find(x => x.uid === uid);
     if (!j || j.status !== 'running') return;
     if (!S.crew) return C.toast(t('selectCrew'));
-    const c = P.readingCalc(j, S.readForm && S.readForm.uid === uid ? S.readForm.m0 : '');
+    const c = P.readingCalc(j, S.readForm && S.readForm.uid === uid ? S.readForm.m0 : '', S.cfgP);
     if (c.error) return C.toast(t('fixInvalid'));
     const by = ($('#rd_by_' + CSS.escape(uid)) || {}).value || '';
     if (!by.trim()) return C.toast(t('needName'));
@@ -362,7 +362,7 @@ window.ProdUI = function (C) {
     const rows = [];
     if (S.jobForm.mode === 'blend' && isNum(c.m0)) rows.push(`<div class="kv"><span>${esc(t('blendM0'))}</span><b>${esc(C.fmtNum(c.m0))} % · ${esc(t('impurities'))} ${esc(C.fmtNum(c.impurities))} %</b></div>`);
     if (isNum(c.waterL)) rows.push(`<div class="kv"><span>${esc(t('waterTotal'))}</span><b>${fmtKg(c.waterL)} L</b></div>`);
-    if (isNum(c.waterLh)) rows.push(`<div class="kv"><span>${esc(t('waterRate'))}</span><b class="${c.waterLh > S.cfgP.dampenerMaxLh ? 'txt-reject' : ''}">${fmtKg(c.waterLh)} L/h <small>(${esc(t('max'))} ${fmtKg(S.cfgP.dampenerMaxLh)})</small></b></div>`);
+    if (isNum(c.waterLh)) rows.push(`<div class="kv"><span>${esc(t('waterRate'))}</span><b class="${isNum(c.dampenerMaxLh) && c.waterLh > c.dampenerMaxLh ? 'txt-reject' : ''}">${fmtKg(c.waterLh)} L/h <small>(${esc(t('max'))} ${fmtKg(c.dampenerMaxLh)})</small></b></div>`);
     if (isNum(c.hours)) rows.push(`<div class="kv"><span>${esc(t('duration'))}</span><b>${esc(C.fmtNum(c.hours))} h @ ${esc(C.fmtNum(c.feedTph))} t/h</b></div>`);
     if (isNum(c.expectedKg)) rows.push(`<div class="kv"><span>${esc(t('expectedProduct'))}</span><b>${fmtKg(c.expectedKg)} kg (${esc(C.fmtNum(c.extraction))} %)</b></div>`);
     if (c.alloc && c.alloc.length) rows.push(`<div class="kv"><span>${esc(t('fromBins'))}</span><b>${allocText(c.alloc)}</b></div>`);
@@ -387,7 +387,7 @@ window.ProdUI = function (C) {
       offRecipe: r.calc.offRecipe,
       m0: r.values.m0, m1: r.values.m1, impurities: r.values.impurities, feedTph: r.calc.feedTph,
       waterL: r.calc.waterL, waterLh: r.calc.waterLh, expectedKg: isNum(r.calc.expectedKg) ? r.calc.expectedKg : null,
-      extraction: r.calc.extraction, extractionRaw: String(f.targetExtraction), dampenerMaxLh: S.cfgP.dampenerMaxLh,
+      extraction: r.calc.extraction, extractionRaw: String(f.targetExtraction), dampenerMaxLh: P.dampenerMax(S.cfgP, f.lineId),
       recipe: { colours: f.recipe.colours.slice(), grades: f.recipe.grades.slice(), source: 'job' },
       warnings: r.warnings.map(w => w.code + (w.bin ? ':' + w.bin : '')),
       leader: String(f.leader).trim(), leaderCrew: leaderCrewOf(String(f.leader).trim())
@@ -645,7 +645,7 @@ window.ProdUI = function (C) {
   function settingsCard() {
     const c = S.cfgP;
     return `<section class="card"><h3>${esc(t('prodSettings'))}</h3>
-      <p class="sub">${esc(t('prodSettingsSummary', { c: lineIds().map(id => id + ' ' + fmtKg(c.lineTpd[id]) + ' t/d').join(' · '), d: fmtKg(c.dampenerMaxLh), b: c.bins.length }))}</p>
+      <p class="sub">${esc(t('prodSettingsSummary', { c: lineIds().map(id => id + ' ' + fmtKg(c.lineTpd[id]) + ' t/d').join(' · '), d: lineIds().map(id => id + ' ' + fmtKg(P.dampenerMax(c, id))).join(' · '), b: c.bins.length }))}</p>
       <button class="btn" data-nav="prodset">${esc(t('editProdSettings'))}</button></section>
       <section class="card"><h3>${esc(t('codesTitle'))}</h3>
       <p class="sub">${esc(t('codesSummary', { n: codes().filter(c => c.active !== false).length, s: S.cfgP.codesSource || '', pt: codes().filter(c => c.namePt).length, o: codes().filter(c => c.oee).length }))}</p>
@@ -656,7 +656,7 @@ window.ProdUI = function (C) {
     const d = S.prodDraft;
     return `<section class="card"><h2>${esc(t('prodSettings'))}</h2><p class="sub">${esc(t('prodSettingsNote'))}</p>
       <div class="grid2">${lineIds().map(id => `<label class="fld">${esc(t('lineCap', { l: C.lineName(id) }))}<input inputmode="decimal" data-ps="tpd|${esc(id)}" value="${esc(C.fmtNum(d.lineTpd[id]))}"></label>`).join('')}
-      <label class="fld">${esc(t('dampenerMax'))}<input inputmode="decimal" data-ps="damp" value="${esc(C.fmtNum(d.dampenerMaxLh))}"></label></div></section>
+      ${lineIds().map(id => `<label class="fld">${esc(t('dampenerMaxLine', { l: C.lineName(id) }))}<input inputmode="decimal" data-ps="dampl|${esc(id)}" value="${esc(C.fmtNum(P.dampenerMax(d, id)))}"></label>`).join('')}</div></section>
       <section class="card"><h3>${esc(t('masterData'))}</h3><p class="sub">${esc(t('masterHelp'))}</p>
         <label class="fld">${esc(t('grainSilosList'))}<textarea rows="2" data-ps="grainSilos">${esc((d.grainSilos || []).join(', '))}</textarea></label>
         <p class="sub">${esc(t('binsHelp'))}</p>
@@ -681,7 +681,7 @@ window.ProdUI = function (C) {
     document.querySelectorAll('[data-ps]').forEach(el => {
       const [k, a, b] = el.dataset.ps.split('|');
       if (k === 'tpd') { const v = P.num(el.value); if (v === null || isNaN(v) || v <= 0) bad.push(t('lineCap', { l: a })); else n.lineTpd[a] = v; }
-      if (k === 'damp') { const v = P.num(el.value); if (v === null || isNaN(v) || v <= 0) bad.push(t('dampenerMax')); else n.dampenerMaxLh = v; }
+      if (k === 'dampl') { const v = P.num(el.value); if (v === null || isNaN(v) || v <= 0) bad.push(t('dampenerMaxLine', { l: a })); else { n.dampenerMaxLhByLine = Object.assign({}, n.dampenerMaxLhByLine); n.dampenerMaxLhByLine[a] = v; } }
       if (k === 'bins') { const r = P.parseBins(el.value, lineIds()); if (r.errors.length || !r.bins.length) bad.push(t('ptab_bins') + ': ' + (r.errors.join(' | ') || '—')); else n.bins = r.bins; }
       if (k === 'dirtyBins' || k === 'temperedBins') { const r = P.parseBins(el.value, lineIds()); if (r.errors.length || !r.bins.length) bad.push(t(k) + ': ' + (r.errors.join(' | ') || '—')); else n[k] = r.bins; }
       if (k === 'grainSilos') { const r = P.parseSiloList(el.value); if (r.errors.length || !r.silos.length) bad.push(t('grainSilosList') + ': ' + (r.errors.join(' | ') || '—')); else n.grainSilos = r.silos; }
@@ -818,7 +818,7 @@ window.ProdUI = function (C) {
     if (el.dataset.rd) {
       S.readForm = { uid: el.dataset.rd, m0: el.value };
       const j = S.jobs.find(x => x.uid === el.dataset.rd), box = document.getElementById('rdc_' + el.dataset.rd);
-      if (j && box) box.innerHTML = readPreview(j, P.readingCalc(j, el.value)); return true;
+      if (j && box) box.innerHTML = readPreview(j, P.readingCalc(j, el.value, S.cfgP)); return true;
     }
     if (el.dataset.jfl && S.jobForm && el.tagName === 'INPUT') { S.jobForm.leader = el.value; const b = $('#jobCheck'); if (b) b.innerHTML = jobCheckHtml(); return true; }
     if (el.dataset.tri && S.trForm) { S.trForm[el.dataset.tri] = el.value; const b = $('#trCheck'); if (b) b.innerHTML = trCheckHtml(); return true; }

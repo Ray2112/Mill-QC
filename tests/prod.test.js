@@ -271,6 +271,32 @@ t('molhador acima de 2 500 L/h bloqueia', () => {
   assert.ok(!codes(P.validateJob(j, ctx())).includes('dampener_max'));
 });
 
+t('molhador por linha (v1.4.0): C 2 500 L/h, D 1 500 L/h', () => {
+  const c = P.defaultProdConfig();
+  assert.deepStrictEqual(c.dampenerMaxLhByLine, { C: 2500, D: 1500 });
+  assert.strictEqual(P.dampenerMax(c, 'C'), 2500); assert.strictEqual(P.dampenerMax(c, 'D'), 1500);
+  // configuração antiga sem valor por linha → valor único
+  const old = P.defaultProdConfig(); delete old.dampenerMaxLhByLine; assert.strictEqual(P.dampenerMax(old, 'D'), 2500);
+  // linha D: 15 t/h × 10/80 = 1 875 L/h → bloqueia; 12 t/h = 1 500 L/h → permitido
+  const j = Object.assign(baseJob(), { lineId: 'D', tempered: ['B07'], bins: ['B43'], m0: '10', m1: '20', feedTph: '15' });
+  const e = P.validateJob(j, ctx()).errors.find(x => x.code === 'dampener_max');
+  assert.ok(e); assert.strictEqual(e.need, 1875); assert.strictEqual(e.max, 1500);
+  j.feedTph = '12'; const r = P.validateJob(j, ctx());
+  assert.ok(!codes(r).includes('dampener_max')); assert.strictEqual(r.calc.waterLh, 1500); assert.strictEqual(r.calc.dampenerMaxLh, 1500);
+  // humidade por turno: ordem antiga da linha D guardou 2 500 → com cfgP usa 1 500
+  const run = { lineId: 'D', feedTph: 12, m1: 20, dampenerMaxLh: 2500 };
+  assert.strictEqual(P.readingCalc(run, '9').over, false);
+  const rc = P.readingCalc(run, '9', c); assert.strictEqual(rc.max, 1500); assert.strictEqual(rc.over, true);   // 12 000 × 11/80 = 1 650
+  // o mesmo caudal na linha C passa
+  const jc = Object.assign(baseJob(), { m0: '10', m1: '20', feedTph: '15' });
+  assert.ok(!codes(P.validateJob(jc, ctx())).includes('dampener_max'));
+  // validação e auditoria
+  const b = JSON.parse(JSON.stringify(c)); b.dampenerMaxLhByLine.D = 0;
+  assert.deepStrictEqual(P.validateProdConfig(b), ['dampenerLine:D']);
+  b.dampenerMaxLhByLine.D = 1600;
+  assert.deepStrictEqual(P.prodConfigDiff(c, b).map(x => x.field), ['dampenerMaxLh.D']);
+});
+
 t('grão já no alvo: sem água (aviso)', () => {
   const j = baseJob(); j.m0 = '16'; j.m1 = '15';
   const r = P.validateJob(j, ctx());

@@ -109,7 +109,8 @@
   function defaultProdConfig() {
     return {
       lineTpd: { C: 500, D: 300 },     // capacidade (t/dia) — dado do utilizador
-      dampenerMaxLh: 2500,             // molhador, máximo L/h — dado do utilizador
+      dampenerMaxLh: 2500,             // molhador, máximo L/h — valor único até v1.3.0 (recurso se faltar o valor da linha)
+      dampenerMaxLhByLine: { C: 2500, D: 1500 },   // molhador por linha, L/h — Zhax 09-10-2026 (linha D: 1 500 L/h)
       extraction: {},                  // obsoleto desde v1.4.0 (extracção por ordem); mantido para compatibilidade
       recipes: {},                     // obsoleto desde v1.4.0 (receita por ordem); mantido para compatibilidade
       bins: copyBins(DEFAULT_BINS),                  // silos de produto
@@ -487,19 +488,29 @@
         calc.feedTph = Math.round(tph * 100) / 100;
         calc.waterLh = r0(waterRate(tph, m0, m1));
         calc.hours = r1(kg / 1000 / tph);
-        if (isNum(cfgP.dampenerMaxLh) && calc.waterLh > cfgP.dampenerMaxLh) E.push({ code: 'dampener_max', need: calc.waterLh, max: cfgP.dampenerMaxLh });
+        const dmax = dampenerMax(cfgP, job.lineId);
+        calc.dampenerMaxLh = dmax;
+        if (isNum(dmax) && calc.waterLh > dmax) E.push({ code: 'dampener_max', need: calc.waterLh, max: dmax });
       }
     }
     return { errors: E, warnings: W, calc, values: { grainKg: kg, m0, m1, impurities: imp, feedTph: tph } };
   }
 
+  // Máximo do molhador da linha (v1.4.0); sem valor da linha → valor único antigo
+  function dampenerMax(cfgP, lineId) {
+    const v = cfgP && cfgP.dampenerMaxLhByLine ? cfgP.dampenerMaxLhByLine[lineId] : undefined;
+    return isNum(v) ? v : (cfgP && isNum(cfgP.dampenerMaxLh) ? cfgP.dampenerMaxLh : null);
+  }
+
   // ---------- humidade do milho por turno (ordem em curso) ----------
   // Cada turno regista a humidade do milho a entrar; recalcula o caudal de água para o alvo da ordem.
-  function readingCalc(job, m0) {
+  // cfgP (opcional, v1.4.0): usa o máximo actual do molhador da linha em vez do guardado no arranque da ordem
+  function readingCalc(job, m0, cfgP) {
     const v = num(m0);
     if (v === null || isNaN(v) || v < 0 || v >= 100) return { error: 'bad' };
     const lh = r0(waterRate(job.feedTph, v, job.m1));
-    return { m0: v, waterLh: lh, over: isNum(job.dampenerMaxLh) && lh > job.dampenerMaxLh, noWater: v >= job.m1 };
+    const max = cfgP ? dampenerMax(cfgP, job.lineId) : job.dampenerMaxLh;
+    return { m0: v, waterLh: lh, max, over: isNum(max) && lh > max, noWater: v >= job.m1 };
   }
   // Falta a leitura deste turno? (a leitura de arranque conta se a ordem começou neste turno)
   function needsShiftReading(job, shiftStart) {
@@ -546,6 +557,7 @@
     const e = [];
     Object.keys(c.lineTpd || {}).forEach(k => { const v = c.lineTpd[k]; if (!isNum(v) || v <= 0) e.push('lineTpd:' + k); });
     if (!isNum(c.dampenerMaxLh) || c.dampenerMaxLh <= 0) e.push('dampenerMaxLh');
+    Object.keys(c.dampenerMaxLhByLine || {}).forEach(k => { const v = c.dampenerMaxLhByLine[k]; if (!isNum(v) || v <= 0) e.push('dampenerLine:' + k); });
     Object.keys(c.extraction || {}).forEach(k => { const v = c.extraction[k]; if (v !== null && (!isNum(v) || v <= 0 || v > 100)) e.push('extraction:' + k); });
     Object.keys(c.recipes || {}).forEach(k => {
       const r = c.recipes[k];
@@ -568,6 +580,7 @@
     const keys = (o1, o2) => [...new Set(Object.keys(o1 || {}).concat(Object.keys(o2 || {})))];
     keys(a.lineTpd, b.lineTpd).forEach(k => cmp('lineTpd.' + k, (a.lineTpd || {})[k], (b.lineTpd || {})[k]));
     cmp('dampenerMaxLh', a.dampenerMaxLh, b.dampenerMaxLh);
+    keys(a.dampenerMaxLhByLine, b.dampenerMaxLhByLine).forEach(k => cmp('dampenerMaxLh.' + k, (a.dampenerMaxLhByLine || {})[k], (b.dampenerMaxLhByLine || {})[k]));
     keys(a.extraction, b.extraction).forEach(k => cmp('extraction.' + k, (a.extraction || {})[k], (b.extraction || {})[k]));
     keys(a.recipes, b.recipes).forEach(k => cmp('recipe.' + k, (a.recipes || {})[k], (b.recipes || {})[k]));
     cmp('bins', binsText(a.bins || []), binsText(b.bins || []));
@@ -667,7 +680,7 @@
 
   const api = { VERSION, COLOURS, SILO_GRADES, GRAIN_SILOS, DEFAULT_DIRTY_BINS, DEFAULT_TEMPERED_BINS, MASTER_SOURCE, dirtyBinState, validateTransfer, crewLeader, leaderNames, transferredAfter, parseSiloList, nonCanonical, DOWNTIME_CODES, DOWNTIME_SOURCE, TIER3, V2_CATS, OEE_TREAT, defaultCodes, findCode, validateCodes, ACT_TYPES, JOB_STATUS, DEFAULT_BINS, BIN_SOURCE,
     defaultProdConfig, num, waterFor, waterRate, defaultFeedTph, siloKg, snapshotFromSilosBackup,
-    availableKg, allocate, recipeSet, OLD_DOWNTIME_SOURCES, recipeFit, binState, binCheck, validateJob, readingCalc, needsShiftReading, parseBins, binsText,
+    availableKg, allocate, recipeSet, OLD_DOWNTIME_SOURCES, dampenerMax, recipeFit, binState, binCheck, validateJob, readingCalc, needsShiftReading, parseBins, binsText,
     validateProdConfig, prodConfigDiff, effectiveLog, validateIssue, validateActivity, shiftSummary, uid, validProdBackup };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Prod = api;
