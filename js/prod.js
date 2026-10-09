@@ -89,14 +89,14 @@
 
   // ---------- dados mestre (IDs canónicos — Zhax, 09-10-2026) ----------
   // Silos de grão (app de Silos): S01–S21. Silos de moagem: B01–B04 milho sujo (C e D, 130 t);
-  // B05–B06 milho temperado linha C (95 t); B07–B08 milho temperado linha D (capacidade não indicada).
+  // B05–B06 milho temperado linha C (95 t); B07–B08 milho temperado linha D (55 t).
   // Silos de produto (fuba e grits): linhas do ecrã "Flour Silos" (foto 08-10-2026); capacidades: Zhax.
   const MASTER_SOURCE = 'IDs canónicos indicados por Zhax (09-10-2026)';
   const BIN_SOURCE = 'Ecrã "Flour Silos" (foto 08-10-2026) + IDs e capacidades indicados por Zhax (09-10-2026)';
   const GRAIN_SILOS = Array.from({ length: 21 }, (_, i) => 'S' + String(i + 1).padStart(2, '0'));
   const mk = rows => rows.map(([id, l, c]) => ({ id, lines: l.split(''), capT: c }));
   const DEFAULT_DIRTY_BINS = mk([['B01', 'CD', 130], ['B02', 'CD', 130], ['B03', 'CD', 130], ['B04', 'CD', 130]]);
-  const DEFAULT_TEMPERED_BINS = mk([['B05', 'C', 95], ['B06', 'C', 95], ['B07', 'D', null], ['B08', 'D', null]]);
+  const DEFAULT_TEMPERED_BINS = mk([['B05', 'C', 95], ['B06', 'C', 95], ['B07', 'D', 55], ['B08', 'D', 55]]);
   const DEFAULT_BINS = mk([
     ['B34', 'CD', 60], ['B35', 'CD', 60], ['B40', 'C', 188], ['B43', 'D', 188],
     ['B44', 'C', 188], ['B45', 'C', 188], ['B46', 'C', 188], ['B47', 'C', 145]

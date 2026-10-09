@@ -30,12 +30,12 @@ t('caudal por defeito = capacidade/24', () => {
   assert.strictEqual(P.defaultFeedTph(c, 'X'), null);
 });
 
-t('dados mestre: S01–S21; B01–B04 sujo 130 t (C/D); B05–B06 temperado C 95 t; B07–B08 D; silos de produto B', () => {
+t('dados mestre: S01–S21; B01–B04 sujo 130 t (C/D); B05–B06 temperado C 95 t; B07–B08 D 55 t; silos de produto B', () => {
   const c = P.defaultProdConfig();
   assert.strictEqual(c.grainSilos.length, 21); assert.strictEqual(c.grainSilos[0], 'S01'); assert.strictEqual(c.grainSilos[20], 'S21');
   assert.deepStrictEqual(c.dirtyBins, ['B01', 'B02', 'B03', 'B04'].map(id => ({ id, lines: ['C', 'D'], capT: 130 })));
   assert.deepStrictEqual(c.temperedBins, [{ id: 'B05', lines: ['C'], capT: 95 }, { id: 'B06', lines: ['C'], capT: 95 },
-    { id: 'B07', lines: ['D'], capT: null }, { id: 'B08', lines: ['D'], capT: null }]);        // capacidade D não indicada
+    { id: 'B07', lines: ['D'], capT: 55 }, { id: 'B08', lines: ['D'], capT: 55 }]);
   assert.deepStrictEqual(c.bins.map(b => b.id), ['B34', 'B35', 'B40', 'B43', 'B44', 'B45', 'B46', 'B47']);
   assert.deepStrictEqual(c.bins.filter(b => b.lines.includes('D')).map(b => b.id), ['B34', 'B35', 'B43']);
   assert.deepStrictEqual(c.bins.map(b => b.capT), [60, 60, 188, 188, 188, 188, 188, 145]);
@@ -367,7 +367,7 @@ t('configuração: validação e diferenças', () => {
   // mesmo ID em duas listas
   const c = P.defaultProdConfig(); c.temperedBins.push({ id: 'B01', lines: ['C'], capT: 95 });
   assert.ok(P.validateProdConfig(c).includes('dupIds'));
-  const c2 = P.defaultProdConfig(); c2.temperedBins[2].capT = 95;
+  const c2 = P.defaultProdConfig(); c2.temperedBins[2].capT = 60;
   assert.deepStrictEqual(P.prodConfigDiff(P.defaultProdConfig(), c2).map(x => x.field), ['temperedBins']);
 });
 
