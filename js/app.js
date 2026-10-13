@@ -554,10 +554,10 @@
       ${show.map(p => { const m = D[p] || {}; return `<details class="card lim-ed" ${L.hasLimits(prod.limits[p]) ? 'open' : ''}><summary><b>${esc(paramLabel(p, prod))}</b> <small>${esc(L.UNITS[p])} · ${esc(limitText(prod.limits[p]))}</small></summary>
         <p class="sub">${esc(t('now'))}: ${esc(limitText(prod.limits[p]))}${prod.limits[p].src ? ' · ' + esc(prod.limits[p].src) : ''}</p>
         <div class="grid3">
-          <label class="fld">${esc(t('min'))} (${m.loOp === 'gt' ? '>' : '≥'})<input inputmode="decimal" data-lim="${p}|lo" value="${esc(fmtNum(m.lo))}"></label>
+          <label class="fld">${esc(t('min'))}<span class="row"><select data-lim="${p}|loOp" aria-label="${esc(t('min'))}"><option value="ge" ${m.loOp !== 'gt' ? 'selected' : ''}>≥</option><option value="gt" ${m.loOp === 'gt' ? 'selected' : ''}>&gt;</option></select><input inputmode="decimal" data-lim="${p}|lo" value="${esc(fmtNum(m.lo))}"></span></label>
           <label class="fld">${esc(t('ifBelow'))}<select data-lim="${p}|loAct"><option value="warn" ${m.loAct !== 'reject' ? 'selected' : ''}>${esc(t('dec_warn'))}</option><option value="reject" ${m.loAct === 'reject' ? 'selected' : ''}>${esc(t('dec_reject'))}</option></select></label>
           <label class="fld">${esc(t('warnBelowLbl'))}<input inputmode="decimal" data-lim="${p}|warnLo" value="${esc(fmtNum(m.warnLo))}"></label>
-          <label class="fld">${esc(t('max'))} (${m.hiOp === 'lt' ? '<' : '≤'})<input inputmode="decimal" data-lim="${p}|hi" value="${esc(fmtNum(m.hi))}"></label>
+          <label class="fld">${esc(t('max'))}<span class="row"><select data-lim="${p}|hiOp" aria-label="${esc(t('max'))}"><option value="le" ${m.hiOp !== 'lt' ? 'selected' : ''}>≤</option><option value="lt" ${m.hiOp === 'lt' ? 'selected' : ''}>&lt;</option></select><input inputmode="decimal" data-lim="${p}|hi" value="${esc(fmtNum(m.hi))}"></span></label>
           <label class="fld">${esc(t('ifAbove'))}<select data-lim="${p}|hiAct"><option value="reject" ${m.hiAct !== 'warn' ? 'selected' : ''}>${esc(t('dec_reject'))}</option><option value="warn" ${m.hiAct === 'warn' ? 'selected' : ''}>${esc(t('dec_warn'))}</option></select></label>
           <label class="fld">${esc(t('warnAboveLbl'))}<input inputmode="decimal" data-lim="${p}|warnHi" value="${esc(fmtNum(m.warnHi))}"></label>
           <label class="fld">${esc(t('frequency'))}<select data-lim="${p}|freq">${L.FREQS.map(fr => `<option value="${fr}" ${m.freq === fr ? 'selected' : ''}>${esc(t('fr_' + fr))}</option>`).join('')}</select></label>
@@ -576,7 +576,7 @@
     const errs = [];
     document.querySelectorAll('[data-lim]').forEach(el => {
       const [p, f] = el.dataset.lim.split('|');
-      if (f === 'loAct' || f === 'hiAct' || f === 'freq') { newLim[p][f] = el.value; return; }
+      if (f === 'loAct' || f === 'hiAct' || f === 'freq' || f === 'loOp' || f === 'hiOp') { newLim[p][f] = el.value; return; }
       const n = L.num(el.value);
       if (n !== null && isNaN(n)) { errs.push(p); el.classList.add('bad'); return; }
       newLim[p][f] = n;

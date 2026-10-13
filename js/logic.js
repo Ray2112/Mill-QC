@@ -6,7 +6,7 @@
 (function (root) {
   'use strict';
 
-  const VERSION = '1.5.0';
+  const VERSION = '1.6.0';
   const DECISIONS = ['record', 'accept', 'warn', 'reject'];   // ordem de gravidade
   const RANK = { record: 0, accept: 1, warn: 2, reject: 3 };
   const CREWS = ['A', 'B', 'C', 'D'];
@@ -268,13 +268,16 @@
     if (isNum(L.warnLo) && isNum(L.lo) && L.warnLo < L.lo) e.push('warnLo<lo');
     if (isNum(L.warnLo) && isNum(L.warnHi) && L.warnLo > L.warnHi) e.push('warnLo>warnHi');
     if (L.freq && FREQS.indexOf(L.freq) < 0) e.push('freq:invalid');
+    if (L.loOp && ['ge', 'gt'].indexOf(L.loOp) < 0) e.push('loOp:invalid');
+    if (L.hiOp && ['le', 'lt'].indexOf(L.hiOp) < 0) e.push('hiOp:invalid');
     return e;
   }
   // Diferenças entre limites antigos e novos (para auditoria)
   function limitDiff(oldL, newL) {
     const d = [];
-    LIMIT_FIELDS.concat(['freq', 'loAct', 'hiAct']).forEach(f => {
-      const dflt = f === 'loAct' ? 'warn' : f === 'hiAct' ? 'reject' : null;   // acção por defeito
+    LIMIT_FIELDS.concat(['freq', 'loAct', 'hiAct', 'loOp', 'hiOp']).forEach(f => {
+      // por defeito: acção abaixo = aviso, acima = rejeita; mínimo ≥, máximo ≤ (v1.6.0: operadores editáveis e registados)
+      const dflt = { loAct: 'warn', hiAct: 'reject', loOp: 'ge', hiOp: 'le' }[f] || null;
       const norm = v => (v === undefined || v === null) ? dflt : v;
       const a = norm(oldL[f]), b = norm(newL[f]);
       if (a !== b) d.push({ field: f, old: a, new: b });

@@ -227,4 +227,14 @@ console.log('OK —', n, 'grupos de testes passaram');
 // acção por defeito não conta como alteração
 assert.strictEqual(L.limitDiff({ hi: 14 }, { hi: 14, loAct: 'warn', hiAct: 'reject' }).length, 0);
 assert.strictEqual(L.limitDiff({ hi: 14 }, { hi: 14, hiAct: 'warn' }).length, 1);
+// v1.6.0: operadores editáveis — registados na auditoria, validados, e mudam a decisão no valor-limite
+assert.deepStrictEqual(L.limitDiff({ hi: 3, hiOp: 'lt' }, { hi: 3, hiOp: 'le' }), [{ field: 'hiOp', old: 'lt', new: 'le' }]);
+assert.deepStrictEqual(L.limitDiff({ lo: 5 }, { lo: 5, loOp: 'gt' }), [{ field: 'loOp', old: 'ge', new: 'gt' }]);
+assert.strictEqual(L.limitDiff({ hi: 3 }, { hi: 3, hiOp: 'le', loOp: 'ge' }).length, 0);       // ausente = ≤ / ≥
+assert.deepStrictEqual(L.validateLimit({ hi: 3, hiOp: 'xx' }), ['hiOp:invalid']);
+assert.deepStrictEqual(L.validateLimit({ lo: 3, loOp: 'le' }), ['loOp:invalid']);
+assert.strictEqual(L.evalParam(3.0, { hi: 3, hiOp: 'lt', hiAct: 'reject' }).decision, 'reject');
+assert.strictEqual(L.evalParam(3.0, { hi: 3, hiOp: 'le', hiAct: 'reject' }).decision, 'accept');
+assert.strictEqual(L.evalParam(4.9, { lo: 5, loOp: 'ge', loAct: 'warn' }).decision, 'warn');      // mínimo com aviso, não retém
+assert.strictEqual(L.evalParam(5, { lo: 5, loOp: 'gt', loAct: 'warn' }).decision, 'warn');
 console.log('OK — limitDiff por defeito');

@@ -1,4 +1,7 @@
-# Moagem — Controlo de Qualidade (auto-controlo) + Produção · v1.5.0
+# Moagem — Controlo de Qualidade (auto-controlo) + Produção · v1.6.0
+
+> **v1.6.0 (13-10-2026) — operadores dos limites editáveis.** No editor de limites (Definições → Limites, PIN) o supervisor escolhe agora **≤ ou <** no máximo e **≥ ou >** no mínimo; a alteração fica registada. Permite, por exemplo, “3,00 % máx.” (3,00 passa) em vez de “< 3,0”.
+> - **Especificações internas Carrinho (confidenciais) não estão no código** — este repositório é público. Os limites de especificações internas introduzem-se em cada telemóvel no editor de limites, com PIN; ficam no telemóvel e nas cópias de segurança.
 
 > **v1.5.0 (09-10-2026) — vários produtos na mesma ordem.**
 > - Uma ordem pode fazer **vários produtos ao mesmo tempo** (ex.: Fuba 2 + grits cervejeira), sem limite fixo. Cada produto tem a sua **extracção alvo** e os seus **silos de destino**; a soma das extracções não pode passar 100 %. Um silo só pode ser de um produto na ordem; capacidade verificada por produto.
@@ -99,6 +102,8 @@ Offline PWA for in-process quality control (auto-control) on the mill lines. Sep
 - **Limits** editable only with PIN, supervisor name and reason; every change is logged.
 
 Products and limits: see the table above (source: FMO Maize Quality Matrix v1.0, SA R.63 values adopted for now). Rules chosen: fat/fibre **below** class minimum = Warning; no warning band for fat/fibre/granulation until set; any physical defect = Reject. Frequencies: hourly — moisture, fat, physical, grits granulation; per shift (= one lot, app definition) — fibre and meal granulation; other tests record-only.
+
+> **v1.6.0 (13-10-2026) — editable limit operators.** In the limits editor (PIN) the supervisor now chooses ≤ or < for the maximum and ≥ or > for the minimum; changes are logged. Confidential internal Carrinho specifications are not in the code (public repository): they are entered per phone in the limits editor and stay on the phone and in backups.
 
 > **v1.5.0 (09-10-2026) — several products per job.** A job can make several products at once (e.g. Fuba 2 + brewing grits), no fixed limit; each product has its own target extraction and destination bins, extractions may not exceed 100 % in total, a bin belongs to one product, capacity is checked per product. QC tracks hourly/shift checks and overdue status for each running product. Holds stay per line but close only when every rejected product has a passing re-sample after corrective action; a good sample of another product does not release the line. v1.4.0 single-product jobs still display and close normally.
 
