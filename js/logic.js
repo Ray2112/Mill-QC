@@ -6,7 +6,7 @@
 (function (root) {
   'use strict';
 
-  const VERSION = '1.3.0';
+  const VERSION = '1.4.0';
   const DECISIONS = ['record', 'accept', 'warn', 'reject'];   // ordem de gravidade
   const RANK = { record: 0, accept: 1, warn: 2, reject: 3 };
   const CREWS = ['A', 'B', 'C', 'D'];
@@ -307,6 +307,57 @@
         warn: samples.filter(x => x.decision === 'warn').length, reject: samples.filter(x => x.decision === 'reject').length } };
   }
 
+  // ---------- mestre partilhado de limites (ficheiro confidencial — nunca no repositório) ----------
+  // version = instante ISO em que os limites foram publicados; compara-se como texto (ordem cronológica).
+  // Distribuído à mão no registo de cada telemóvel. Só uma versão mais nova do que a em vigor é aplicada.
+  const LIMITS_MASTER_APP = 'mill-qc-limits';
+  const ISO_INSTANT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
+  function limitsMasterFile(cfg, version, issuedAt) {
+    const list = (cfg.products && cfg.products[cfg.millType]) || [];
+    return { app: LIMITS_MASTER_APP, format: 1, version: version, issuedAt: issuedAt, millType: cfg.millType, products: JSON.parse(JSON.stringify(list)) };
+  }
+  function validLimitsMaster(m) {
+    const errors = [];
+    if (!m || typeof m !== 'object') return { ok: false, errors: ['not-object'] };
+    if (m.app !== LIMITS_MASTER_APP || m.format !== 1) errors.push('wrong-file');
+    if (typeof m.version !== 'string' || !ISO_INSTANT_RE.test(m.version)) errors.push('bad-version');
+    if (MILL_TYPES.indexOf(m.millType) < 0) errors.push('bad-mill');
+    if (!Array.isArray(m.products) || !m.products.length) errors.push('no-products');
+    else m.products.forEach(p => {
+      if (!p || typeof p.id !== 'string' || !p.id) { errors.push('product-id'); return; }
+      if (!p.limits || typeof p.limits !== 'object') { errors.push('limits:' + p.id); return; }
+      PARAMS.forEach(k => { const lim = p.limits[k]; if (lim && validateLimit(lim).length) errors.push(p.id + '.' + k); });
+    });
+    return { ok: errors.length === 0, errors: errors };
+  }
+  // 'apply' = primeira versão ou mais nova; 'same' = igual; 'older' = mais antiga (não aplicar).
+  function limitsVersionStatus(current, incoming) {
+    if (!current) return 'apply';
+    if (incoming === current) return 'same';
+    return incoming > current ? 'apply' : 'older';
+  }
+  // Aplica o mestre à configuração. Devolve { cfg, status, changes } (cfg inalterada se não for aplicado).
+  function applyLimitsMaster(cfg, m) {
+    const v = validLimitsMaster(m);
+    if (!v.ok) throw new Error('invalid-master:' + v.errors.join(','));
+    if (m.millType !== cfg.millType) throw new Error('mill-mismatch');
+    const status = limitsVersionStatus(cfg.limitsVersion, m.version);
+    if (status !== 'apply') return { cfg: cfg, status: status, changes: [] };
+    const current = (cfg.products && cfg.products[cfg.millType]) || [];
+    const changes = [];
+    m.products.forEach(np => {
+      const op = current.find(p => p.id === np.id);
+      PARAMS.forEach(k => {
+        const oldL = (op && op.limits && op.limits[k]) || {}, newL = (np.limits && np.limits[k]) || {};
+        limitDiff(oldL, newL).forEach(d => changes.push({ productId: np.id, param: k, field: d.field, old: d.old, new: d.new }));
+      });
+    });
+    const next = JSON.parse(JSON.stringify(cfg));
+    next.products[cfg.millType] = JSON.parse(JSON.stringify(m.products));
+    next.limitsVersion = m.version;
+    return { cfg: next, status: status, changes: changes };
+  }
+
   // ---------- chaves de registo (UUID) ----------
   // Lojas de CQ com chave 'id' = UUID v4 (texto). Antes eram números autoincrement, só válidos neste telemóvel.
   const QC_KEYED = ['samples', 'holds', 'alerts', 'limitChanges', 'reports'];
@@ -375,7 +426,8 @@
     defaultProducts, defaultConfig, num, pct, evalParam, hasLimits, evaluateSample, worst,
     prodDay, prodDayRange, shiftOf, ymd, dueStatus, newHold, holdAfterSample, addHoldAction,
     effective, validateLimit, limitDiff, dayReport, validBackup, findProduct,
-    QC_KEYED, newId, shortId, qcUpgradeKeys };
+    QC_KEYED, newId, shortId, qcUpgradeKeys,
+    LIMITS_MASTER_APP, limitsMasterFile, validLimitsMaster, limitsVersionStatus, applyLimitsMaster };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Logic = api;
 })(typeof window !== 'undefined' ? window : this);
