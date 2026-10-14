@@ -66,14 +66,14 @@ window.ProdUI = function (C) {
   let seq = 0;
   // UUID v4 por registo (o dispositivo vai em deviceId); recurso antigo se randomUUID não existir
   const newUid = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : P.uid(S.deviceId, now(), (++seq).toString(36) + Math.random().toString(36).slice(2, 6));
-  const base = tms => ({ uid: newUid(), deviceId: S.deviceId, createdAt: now(), crew: S.crew, period: L.shiftOf(tms).period, prodDay: L.prodDay(tms), shift: L.prodDay(tms) + '/' + L.shiftOf(tms).period });
+  const base = tms => ({ uid: newUid(), deviceId: S.deviceId, createdAt: now(), crew: L.crewOfTime(tms), period: L.shiftOf(tms).period, prodDay: L.prodDay(tms), shift: L.prodDay(tms) + '/' + L.shiftOf(tms).period });
   const snapshot = () => (S.siloSnaps || []).slice().sort((a, b) => b.importedAt - a.importedAt)[0] || null;
   const runningJob = lineId => (S.jobs || []).find(j => j.status === 'running' && j.lineId === lineId);
   const lineIds = () => S.cfg.lines.map(l => l.id);
   const binById = id => S.cfgP.bins.find(b => b.id === id);
   const prodOrDash = id => id ? C.prodName(id) : '—';
   // Chefe de turno: lista (Definições) quando definida; senão texto livre. Por defeito: chefe da turma seleccionada.
-  const defLeader = () => P.crewLeader(S.cfgP, S.crew) || S.operator;
+  const defLeader = () => P.crewLeader(S.cfgP, L.crewOfTime(now())) || S.operator;
   function leaderField(attr, value) {
     const list = P.leaderNames(S.cfgP);
     if (!list.length) return `<input ${attr} value="${esc(value)}">`;
@@ -173,7 +173,6 @@ window.ProdUI = function (C) {
   }
   async function saveTransfer() {
     const f = S.trForm;
-    if (!S.crew) return C.toast(t('selectCrew'));
     if (!String(f.by || '').trim()) return C.toast(t('needName'));
     const r = P.validateTransfer(f, tctxFor());
     if (r.errors.length) { keepScroll(); return C.toast(t('trBlocked')); }
@@ -257,13 +256,12 @@ window.ProdUI = function (C) {
   async function saveReading(uid) {
     const j = S.jobs.find(x => x.uid === uid);
     if (!j || j.status !== 'running') return;
-    if (!S.crew) return C.toast(t('selectCrew'));
     const c = P.readingCalc(j, S.readForm && S.readForm.uid === uid ? S.readForm.m0 : '');
     if (c.error) return C.toast(t('fixInvalid'));
     const by = ($('#rd_by_' + CSS.escape(uid)) || {}).value || '';
     if (!by.trim()) return C.toast(t('needName'));
     const tms = now(), sh = L.shiftOf(tms);
-    const rd = { uid: newUid(), deviceId: S.deviceId, createdAt: new Date(now()).toISOString(), t: tms, crew: S.crew, period: sh.period, prodDay: sh.day, m0: c.m0, waterLh: c.waterLh, over: c.over, by: by.trim(), kind: 'shift' };
+    const rd = { uid: newUid(), deviceId: S.deviceId, createdAt: new Date(now()).toISOString(), t: tms, crew: L.crewOfTime(tms), period: sh.period, prodDay: sh.day, m0: c.m0, waterLh: c.waterLh, over: c.over, by: by.trim(), kind: 'shift' };
     try { await DB.put('jobs', Object.assign({}, j, { readings: (j.readings || []).concat([rd]) })); } catch (e) { return C.toast(t('saveFailed')); }
     S.readForm = null; S.operator = rd.by; await DB.setConfig('operator', S.operator);
     await reload(); C.toast(c.over ? t('overDampener') : t('readingSaved', { lh: fmtKg(c.waterLh) })); keepScroll();
@@ -399,7 +397,6 @@ window.ProdUI = function (C) {
   }
   async function startJob() {
     const f = S.jobForm;
-    if (!S.crew) return C.toast(t('selectCrew'));
     if (!String(f.leader || '').trim()) return C.toast(t('needLeader'));
     const r = P.validateJob(f, ctxFor());
     if (r.errors.length) { keepScroll(); return C.toast(t('jobBlocked')); }
@@ -418,7 +415,7 @@ window.ProdUI = function (C) {
       warnings: r.warnings.map(w => w.code + (w.bin ? ':' + w.bin : '')),
       leader: String(f.leader).trim(), leaderCrew: leaderCrewOf(String(f.leader).trim())
     });
-    job.readings = [{ uid: newUid(), deviceId: S.deviceId, createdAt: new Date(now()).toISOString(), t: tms, crew: S.crew, period: job.period, prodDay: job.prodDay, m0: job.m0, waterLh: job.waterLh, by: job.leader, kind: 'start' }];
+    job.readings = [{ uid: newUid(), deviceId: S.deviceId, createdAt: new Date(now()).toISOString(), t: tms, crew: L.crewOfTime(tms), period: job.period, prodDay: job.prodDay, m0: job.m0, waterLh: job.waterLh, by: job.leader, kind: 'start' }];
     const ops = [{ store: 'jobs', op: 'add', obj: job }].concat(f.bins.map((b, i) => ({ store: 'binEvents', op: 'add',
       obj: Object.assign(base(tms), { binId: b, type: 'FILL', productId: f.productId, jobUid: job.uid, lineId: f.lineId, t: tms, seq: i, by: job.leader }) })));
     try { await DB.batch(ops); } catch (e) { return C.toast(t('saveFailed')); }
@@ -515,7 +512,6 @@ window.ProdUI = function (C) {
   }
   async function saveLog() {
     const f = S.logForm;
-    if (!S.crew) return C.toast(t('selectCrew'));
     const tms = new Date(f.time).getTime();
     if (!isFinite(tms)) return C.toast(t('badTime'));
     if (tms > now() + 5 * 60000) return C.toast(t('futureTime'));

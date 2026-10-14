@@ -8,7 +8,7 @@ Endereço (depois de publicada): https://ray2112.github.io/Mill-QC/
 
 ## O que faz
 - **Tipo de moagem:** Milho (configurado) · Trigo e Arroz (ainda sem produtos/limites).
-- **Turma A/B/C/D** escolhida no topo; turno **Dia 07–19 / Noite 19–07** automático pela hora.
+- **Turma A/B/C/D** deduzida da data e hora pela rotação de 8 turnos (ancora 14-10-2026 07:00 = C); não se escolhe. Turno **Dia 07–19 / Noite 19–07** automático pela hora.
 - **Linhas:** Moinho C e Moinho D (nomes editáveis com PIN). Para cada linha: produto em produção, arrancar/parar, controlos previstos e em atraso.
 - **Decisão automática por amostra:** Aceite · Aviso · Rejeitado (o pior parâmetro manda). Rejeitado → **linha RETIDA**.
 - **Retenção:** fecha só com PIN de supervisor + acção correctiva **e** uma re-amostra posterior Aceite/Aviso. Re-amostra rejeitada volta a pedir acção.
@@ -89,7 +89,7 @@ JS simples, sem compilação. `js/logic.js` regras puras (testes: `node tests/lo
 Offline PWA for in-process quality control (auto-control) on the mill lines. Separate from the Silos app (`Mill-App`): its own repo, address, database (`moagem-cq`) and cache.
 
 - **Mill type:** Maize (configured) · Wheat and Rice (no products/limits yet).
-- **Crew A/B/C/D** selected at the top; **Day 07–19 / Night 19–07** set from the clock.
+- **Crew A/B/C/D** derived from date and time by the 8-slot rotation (anchor 2026-10-14 07:00 = C); not chosen. **Day 07–19 / Night 19–07** set from the clock.
 - **Lines:** Mill C and Mill D (renamable with PIN): running product, start/stop, due and overdue checks.
 - **Per-sample decision:** Accept · Warning · Reject (worst parameter wins). Reject → **line ON HOLD**.
 - **Hold release:** supervisor PIN + corrective action **and** a later re-sample that is Accept/Warning. A rejected re-sample asks for a new action.

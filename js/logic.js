@@ -422,6 +422,17 @@
     return list.find(p => p.id === id) || null;
   }
 
+  // Turma pela rotação de 12 h (Zhax, 14-10-2026): 14-10 07–19 = C; 14-10 19–07 = B; 15-10 D = A; 15-10 N = C;
+  // 16-10 D = D; 16-10 N = A; 17-10 D = B. Ciclo de 8 turnos que se repete. O 8.º (17-10 N = D) é INFERIDO — confirmar.
+  const CREW_CYCLE = ['C', 'B', 'A', 'C', 'D', 'A', 'B', 'D'];
+  const CREW_ANCHOR_MS = new Date(2026, 9, 14, 7, 0).getTime();
+  function crewOfTime(t) {
+    const day = prodDay(t), h = new Date(t).getHours();
+    const [y, m, dd] = day.split('-').map(Number);
+    const start = h >= 7 && h < 19 ? new Date(y, m - 1, dd, 7) : new Date(y, m - 1, dd, 19);
+    const slot = Math.round((start.getTime() - CREW_ANCHOR_MS) / (12 * 3600000));
+    return CREW_CYCLE[((slot % 8) + 8) % 8];
+  }
   // Contrato de dados v1: campos em todo o registo. Só preenche o que falta (nunca sobrescreve valores existentes).
   // isNew: createdAt só é definido em registos novos. ctx: {deviceId, operatorId, test, now}
   const CONTRACT_VERSION = 1;
@@ -434,11 +445,11 @@
     if (out.operatorId === undefined) out.operatorId = (ctx && ctx.operatorId) || null;
     if (out.test === undefined) out.test = !!(ctx && ctx.test);
     if (out.uploadedAt === undefined) out.uploadedAt = null;
-    if (out.crew === undefined) out.crew = (ctx && ctx.crew) || null;
     // turno = dia de produção + período (D 07:00–19:00, N 19:00–07:00); só para registos com hora
     if (out.shift === undefined) {
       const ts = typeof out.t === 'number' ? out.t : (out.openedAt ? Date.parse(out.openedAt) : NaN);
-      if (isFinite(ts)) out.shift = prodDay(ts) + '/' + shiftOf(ts).period;
+      if (isFinite(ts)) { out.shift = prodDay(ts) + '/' + shiftOf(ts).period; if (out.crew === undefined) out.crew = crewOfTime(ts); }
+      if (out.crew === undefined) out.crew = null;
     }
     return out;
   }
@@ -461,7 +472,7 @@
     defaultProducts, defaultConfig, num, pct, evalParam, hasLimits, evaluateSample, worst,
     prodDay, prodDayRange, shiftOf, ymd, dueStatus, newHold, holdAfterSample, addHoldAction,
     effective, validateLimit, limitDiff, dayReport, validBackup, findProduct,
-    QC_KEYED, newId, shortId, qcUpgradeKeys, CONTRACT_VERSION, stampContract, normalizeReadings,
+    QC_KEYED, newId, shortId, qcUpgradeKeys, CREW_CYCLE, crewOfTime, CONTRACT_VERSION, stampContract, normalizeReadings,
     LIMITS_MASTER_APP, limitsMasterFile, validLimitsMaster, limitsVersionStatus, applyLimitsMaster };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Logic = api;
