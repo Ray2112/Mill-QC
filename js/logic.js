@@ -6,7 +6,7 @@
 (function (root) {
   'use strict';
 
-  const VERSION = '1.4.0';
+  const VERSION = '1.5.0';
   const DECISIONS = ['record', 'accept', 'warn', 'reject'];   // ordem de gravidade
   const RANK = { record: 0, accept: 1, warn: 2, reject: 3 };
   const CREWS = ['A', 'B', 'C', 'D'];
@@ -434,6 +434,12 @@
     if (out.operatorId === undefined) out.operatorId = (ctx && ctx.operatorId) || null;
     if (out.test === undefined) out.test = !!(ctx && ctx.test);
     if (out.uploadedAt === undefined) out.uploadedAt = null;
+    if (out.crew === undefined) out.crew = (ctx && ctx.crew) || null;
+    // turno = dia de produção + período (D 07:00–19:00, N 19:00–07:00); só para registos com hora
+    if (out.shift === undefined) {
+      const ts = typeof out.t === 'number' ? out.t : (out.openedAt ? Date.parse(out.openedAt) : NaN);
+      if (isFinite(ts)) out.shift = prodDay(ts) + '/' + shiftOf(ts).period;
+    }
     return out;
   }
   // Leituras dentro de um trabalho: chave 'uuid' (versões ≤1.4.0) passa a 'uid'; leituras sem chave recebem uma.

@@ -365,3 +365,17 @@ console.log('OK — limitDiff por defeito');
   assert.strictEqual(L.normalizeReadings({ id: 'J2' }, keyFn).readings, undefined);
   console.log('OK — normalizeReadings (uuid → uid)');
 }
+
+// ---- turno e turma no contrato (QC) ----
+{
+  // 03:00 de 14-10 pertence ao turno N de 13-10 (dia de produção); 09:00 ao turno D de 14-10
+  const night = new Date(2026, 9, 14, 3, 0).getTime();
+  const day = new Date(2026, 9, 14, 9, 0).getTime();
+  const a = L.stampContract({ id: 'a', t: night }, { crew: 'C' }, true);
+  assert.strictEqual(a.shift, '2026-10-13/N');
+  assert.strictEqual(a.crew, 'C');
+  assert.strictEqual(L.stampContract({ id: 'b', t: day }, null, true).shift, '2026-10-14/D');
+  assert.strictEqual(L.stampContract({ id: 'c', openedAt: new Date(day).toISOString() }, null, true).shift, '2026-10-14/D');
+  assert.strictEqual(L.stampContract({ id: 'd' }, null, true).shift, undefined, 'sem hora: sem turno');
+  console.log('OK — turno D/N e turma no contrato');
+}

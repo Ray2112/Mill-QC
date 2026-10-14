@@ -20,25 +20,25 @@ t('água: balanço de massa sobre grão sujo', () => {
   assert.strictEqual(Math.round(P.waterFor(100000, 12, 16) * 10) / 10, 4761.9);
   assert.strictEqual(P.waterFor(1000, 16, 16), 0);
   assert.strictEqual(P.waterFor(1000, 17, 16), 0);       // grão acima do alvo: sem água
-  // Linha C 500 t/dia = 20,833 t/h, 12 → 16 %: 992 L/h
-  assert.strictEqual(Math.round(P.waterRate(500 / 24, 12, 16)), 992);
+  // Linha C 500 000 kg/dia = 20 833 kg/h, 12 → 16 %: 992 L/h
+  assert.strictEqual(Math.round(P.waterRate(500000 / 24, 12, 16)), 992);
 });
 
 t('caudal por defeito = capacidade/24', () => {
   const c = P.defaultProdConfig();
-  assert.strictEqual(P.defaultFeedTph(c, 'D'), 12.5);
-  assert.strictEqual(P.defaultFeedTph(c, 'X'), null);
+  assert.strictEqual(P.defaultFeedKgh(c, 'D'), 12500);
+  assert.strictEqual(P.defaultFeedKgh(c, 'X'), null);
 });
 
-t('dados mestre: S01–S21; B01–B04 sujo 130 t (C/D); B05–B06 temperado C 95 t; B07–B08 D 55 t; silos de produto B', () => {
+t('dados mestre: S01–S21; B01–B04 sujo 130 000 kg (C/D); B05–B06 temperado C 95 000 kg; B07–B08 D 55 000 kg; silos de produto B', () => {
   const c = P.defaultProdConfig();
   assert.strictEqual(c.grainSilos.length, 21); assert.strictEqual(c.grainSilos[0], 'S01'); assert.strictEqual(c.grainSilos[20], 'S21');
-  assert.deepStrictEqual(c.dirtyBins, ['B01', 'B02', 'B03', 'B04'].map(id => ({ id, lines: ['C', 'D'], capT: 130 })));
-  assert.deepStrictEqual(c.temperedBins, [{ id: 'B05', lines: ['C'], capT: 95 }, { id: 'B06', lines: ['C'], capT: 95 },
-    { id: 'B07', lines: ['D'], capT: 55 }, { id: 'B08', lines: ['D'], capT: 55 }]);
+  assert.deepStrictEqual(c.dirtyBins, ['B01', 'B02', 'B03', 'B04'].map(id => ({ id, lines: ['C', 'D'], capKg: 130000 })));
+  assert.deepStrictEqual(c.temperedBins, [{ id: 'B05', lines: ['C'], capKg: 95000 }, { id: 'B06', lines: ['C'], capKg: 95000 },
+    { id: 'B07', lines: ['D'], capKg: 55000 }, { id: 'B08', lines: ['D'], capKg: 55000 }]);
   assert.deepStrictEqual(c.bins.map(b => b.id), ['B34', 'B35', 'B40', 'B43', 'B44', 'B45', 'B46', 'B47']);
   assert.deepStrictEqual(c.bins.filter(b => b.lines.includes('D')).map(b => b.id), ['B34', 'B35', 'B43']);
-  assert.deepStrictEqual(c.bins.map(b => b.capT), [60, 60, 188, 188, 188, 188, 188, 145]);
+  assert.deepStrictEqual(c.bins.map(b => b.capKg), [60000, 60000, 188000, 188000, 188000, 188000, 188000, 145000]);
   assert.deepStrictEqual(c.extraction, {}); assert.deepStrictEqual(c.recipes, {});
   assert.deepStrictEqual(P.validateProdConfig(c), []);
 });
@@ -252,10 +252,10 @@ t('receita e campos em falta', () => {
 });
 
 t('molhador acima de 2 500 L/h bloqueia', () => {
-  const j = baseJob(); j.m0 = '10'; j.m1 = '20'; j.feedTph = '25';   // 25 000 × 10/80 = 3 125 L/h
+  const j = baseJob(); j.m0 = '10'; j.m1 = '20'; j.feedKgh = '25000';   // 25 000 kg/h × 10/80 = 3 125 L/h
   const e = P.validateJob(j, ctx()).errors.find(x => x.code === 'dampener_max');
   assert.ok(e); assert.strictEqual(e.need, 3125);
-  j.feedTph = '20';                                                   // 2 500 L/h exactamente: permitido
+  j.feedKgh = '20000';                                                // 2 500 L/h exactamente: permitido
   assert.ok(!codes(P.validateJob(j, ctx())).includes('dampener_max'));
 });
 
@@ -332,7 +332,7 @@ t('mistura de cor/grau fora da receita só com autorização', () => {
 });
 
 t('humidade do milho por turno: recalcula o caudal de água', () => {
-  const job = { status: 'running', startedAt: 1000, feedTph: 500 / 24, m1: 16, dampenerMaxLh: 2500, readings: [] };
+  const job = { status: 'running', startedAt: 1000, feedKgh: 500000 / 24, m1: 16, dampenerMaxLh: 2500, readings: [] };
   const r = P.readingCalc(job, '13,0');
   assert.strictEqual(r.m0, 13); assert.strictEqual(r.waterLh, Math.round(20833.333 * 3 / 84)); assert.strictEqual(r.over, false);
   assert.strictEqual(P.readingCalc(job, '6').over, false);   // 20 833 × 10/84 = 2 480 L/h
@@ -348,7 +348,7 @@ t('humidade do milho por turno: recalcula o caudal de água', () => {
 
 t('texto de silos de produto', () => {
   const r = P.parseBins('34:C,D:60; 45:C:188\n46:C', ['C', 'D']);
-  assert.deepStrictEqual(r.bins, [{ id: '34', lines: ['C', 'D'], capT: 60 }, { id: '45', lines: ['C'], capT: 188 }, { id: '46', lines: ['C'], capT: null }]);
+  assert.deepStrictEqual(r.bins, [{ id: '34', lines: ['C', 'D'], capKg: 60 }, { id: '45', lines: ['C'], capKg: 188 }, { id: '46', lines: ['C'], capKg: null }]);
   ['dirtyBins', 'temperedBins'].forEach(k => assert.deepStrictEqual(P.parseBins(P.binsText(P.defaultProdConfig()[k]), ['C', 'D']).bins, P.defaultProdConfig()[k]));
   assert.deepStrictEqual(r.errors, []);
   assert.deepStrictEqual(P.parseBins('23:X; 24:C; 24:D; 25:C:0; 26:C:abc', ['C', 'D']).errors, ['23:X', '24:D', '25:C:0', '26:C:abc']);
@@ -365,9 +365,9 @@ t('configuração: validação e diferenças', () => {
   const d = P.prodConfigDiff(a, b).map(x => x.field);
   assert.deepStrictEqual(d, ['extraction.super', 'recipe.super']);
   // mesmo ID em duas listas
-  const c = P.defaultProdConfig(); c.temperedBins.push({ id: 'B01', lines: ['C'], capT: 95 });
+  const c = P.defaultProdConfig(); c.temperedBins.push({ id: 'B01', lines: ['C'], capKg: 95000 });
   assert.ok(P.validateProdConfig(c).includes('dupIds'));
-  const c2 = P.defaultProdConfig(); c2.temperedBins[2].capT = 60;
+  const c2 = P.defaultProdConfig(); c2.temperedBins[2].capKg = 60;
   assert.deepStrictEqual(P.prodConfigDiff(P.defaultProdConfig(), c2).map(x => x.field), ['temperedBins']);
 });
 
@@ -396,39 +396,41 @@ t('diário: validação, anulação e resumo do turno', () => {
   const s = P.shiftSummary('2026-10-08', 'D', [60, 500], { log, jobs, now: 2000 });
   assert.strictEqual(s.issues.length, 2); assert.strictEqual(s.acts.length, 1);
   assert.strictEqual(s.downtimeMin, 45); assert.strictEqual(s.openIssues, 1);
-  assert.deepStrictEqual(s.byV2, { Breakdown: 30, Process: 15 });
-  assert.deepStrictEqual(s.byOee, { '': 45 });                              // OEE ainda não definido
+  assert.deepStrictEqual(s.byTier3, { Breakdown: 30, Process: 15 });
+  assert.deepStrictEqual(s.byOee, { 'Counted as loss': 45 });       // A22 e P13 = conta como perda (ficheiro v2)
   assert.deepStrictEqual(s.jobs.map(j => j.uid), ['j1']);
 });
 
 t('códigos de paragem FMO (Downtime_Codes.xlsx)', () => {
-  assert.strictEqual(P.DOWNTIME_CODES.length, 60);
-  assert.strictEqual(new Set(P.DOWNTIME_CODES.map(c => c.code)).size, 60);
+  assert.strictEqual(P.DOWNTIME_CODES.length, 61);
+  assert.strictEqual(new Set(P.DOWNTIME_CODES.map(c => c.code)).size, 61);
   assert.ok(P.DOWNTIME_CODES.every(c => /^[PAO]\d{2}$/.test(c.code) && c.code === c.code.trim()));
   assert.ok(P.DOWNTIME_CODES.every(c => P.TIER3.indexOf(c.tier3) >= 0));
-  assert.ok(P.DOWNTIME_CODES.every(c => c.v2 === null || P.V2_CATS.indexOf(c.v2) >= 0));
-  assert.deepStrictEqual(P.findCode('A02'), { code: 'A02', name: 'ASPIRATION FAN', namePt: null, v1: 'Unplanned - Mechanical Breakdown', v2: 'Breakdown', tier3: 'Breakdown', oee: null, active: true });
-  assert.strictEqual(P.findCode('P24').v2, null);               // célula só com traços no ficheiro
+  assert.ok(P.DOWNTIME_CODES.every(c => P.OEE_TREAT.indexOf(c.oee) >= 0));
+  assert.deepStrictEqual(P.findCode('A02'), { code: 'A02', name: 'ASPIRATION FAN', namePt: null, tier3: 'Breakdown', oee: 'Counted as loss', active: true });
+  assert.strictEqual(P.findCode('P17').name, 'FUBA BIN FULL');   // nome definido por Zhax (14-10-2026)
+  assert.strictEqual(P.findCode('P17').oee, 'Excluded - External');
+  assert.strictEqual(P.findCode('P25').oee, 'Counted as loss');  // código novo na v2
   assert.strictEqual(P.findCode('O04').tier3, 'Power Failure');
-  assert.ok(P.DOWNTIME_CODES.every(c => c.oee === null && c.namePt === null && !('decision' in c)));
+  assert.ok(P.DOWNTIME_CODES.every(c => c.namePt === null && !('v1' in c) && !('v2' in c)));
   assert.deepStrictEqual(P.validateCodes(P.defaultCodes()), []);
 });
 
 t('códigos editáveis: validação, inactivos, diferenças', () => {
   const list = P.defaultCodes();
-  list[0].namePt = 'ARRANQUE DE PRODUÇÃO'; list[0].oee = 'planned';
+  list[0].namePt = 'ARRANQUE DE PRODUÇÃO'; list[0].oee = 'Excluded - Planned';
   list.find(c => c.code === 'A22').active = false;
-  list.push({ code: 'P25', name: 'NEW STOP', namePt: null, v1: null, v2: 'Process', tier3: null, oee: 'availability', active: true });
+  list.push({ code: 'P26', name: 'NEW STOP', namePt: null, tier3: 'Process', oee: 'Counted as loss', active: true });
   assert.deepStrictEqual(P.validateCodes(list), []);
   const bad = P.defaultCodes().concat([{ code: 'p1', name: '' }, { code: 'P01', name: 'x' }]);
-  bad.find(c => c.code === 'P02').oee = 'xyz'; bad.find(c => c.code === 'P03').v2 = 'Other';
-  assert.deepStrictEqual(P.validateCodes(bad).sort(), ['code:p1', 'dup:P01', 'name:p1', 'oee:P02', 'v2:P03']);
+  bad.find(c => c.code === 'P02').oee = 'xyz'; bad.find(c => c.code === 'P03').tier3 = 'Planned';
+  assert.deepStrictEqual(P.validateCodes(bad).sort(), ['code:p1', 'dup:P01', 'name:p1', 'oee:P02', 'tier3:P03']);
   // inactivo não pode ser usado em novas ocorrências
   assert.deepStrictEqual(P.validateIssue({ code: 'A22', description: 'x', downtimeMin: '5' }, list), ['code']);
-  assert.deepStrictEqual(P.validateIssue({ code: 'P25', description: 'x', downtimeMin: '5' }, list), []);
+  assert.deepStrictEqual(P.validateIssue({ code: 'P26', description: 'x', downtimeMin: '5' }, list), []);
   const a = P.defaultProdConfig(), b = Object.assign({}, a, { downtimeCodes: list });
   const d = P.prodConfigDiff(a, b).map(x => x.field);
-  assert.deepStrictEqual(d.sort(), ['code.A22.active', 'code.P01.namePt', 'code.P01.oee', 'code.P25.active', 'code.P25.name', 'code.P25.oee', 'code.P25.v2'].sort());
+  assert.deepStrictEqual(d.sort(), ['code.A22.active', 'code.P01.namePt', 'code.P01.oee', 'code.P26.active', 'code.P26.name', 'code.P26.oee', 'code.P26.tier3'].sort());
 });
 
 t('chefes de turno: vazios por defeito, por turma, diferenças', () => {
@@ -453,3 +455,35 @@ t('identificador e validação da cópia', () => {
 });
 
 console.log('prod.test.js: ' + n + ' testes OK');
+
+// ---- v1.5.0: códigos v2, unidades kg, caudal kg/h ----
+{
+  // códigos guardados antes: nome PT e activação mantêm-se; a lista e o tratamento OEE vêm do ficheiro v2
+  const old = [{ code: 'A22', name: 'OLD', namePt: 'NOME PT', v1: 'x', v2: 'Breakdown', tier3: 'Breakdown', oee: null, active: false }, { code: 'Z99', name: 'GONE' }];
+  const m = P.mergeCodes(old);
+  assert.strictEqual(m.list.length, 61);
+  assert.deepStrictEqual(m.list.find(c => c.code === 'A22'), Object.assign({}, P.findCode('A22'), { namePt: 'NOME PT', active: false }));   // nome e OEE vêm do ficheiro
+  assert.deepStrictEqual(m.dropped, ['Z99']);
+  assert.strictEqual(m.list.find(c => c.code === 'P17').name, 'FUBA BIN FULL');
+  assert.ok(m.list.every(c => !('v1' in c) && !('v2' in c)));
+}
+t('migração de unidades: t → kg uma vez; configuração já em kg não muda', () => {
+  const legacy = { lineTpd: { C: 500, D: 300 }, bins: [{ id: 'B34', lines: ['C'], capT: 60 }], dirtyBins: [{ id: 'B01', lines: ['C'], capT: 130 }], temperedBins: [], dampenerMaxLh: 2500 };
+  const m = P.migrateUnits(legacy);
+  assert.strictEqual(m.changed, true);
+  assert.deepStrictEqual(m.cfg.lineKgDay, { C: 500000, D: 300000 });
+  assert.strictEqual(m.cfg.bins[0].capKg, 60000); assert.strictEqual(m.cfg.dirtyBins[0].capKg, 130000);
+  assert.strictEqual(m.cfg.lineTpd, undefined); assert.strictEqual(m.cfg.bins[0].capT, undefined);
+  assert.strictEqual(m.cfg.unitsVersion, 2);
+  const again = P.migrateUnits(m.cfg);
+  assert.strictEqual(again.changed, false);
+  assert.deepStrictEqual(again.cfg, m.cfg);
+  assert.strictEqual(P.migrateUnits(P.defaultProdConfig()).changed, false, 'configuração nova já está em kg');
+});
+t('caudal de grão: trabalhos antigos (feedTph em t/h) lidos em kg/h', () => {
+  assert.strictEqual(P.feedKghOf({ feedKgh: 20000 }), 20000);
+  assert.strictEqual(P.feedKghOf({ feedTph: 20 }), 20000);
+  assert.strictEqual(P.feedKghOf({ feedKgh: 15000, feedTph: 20 }), 15000);
+  assert.strictEqual(P.feedKghOf({}), null);
+});
+console.log('OK — v1.5.0 (códigos, unidades, caudal)');

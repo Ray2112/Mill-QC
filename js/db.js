@@ -69,7 +69,7 @@
   const needsId = (store, obj) => STORES.indexOf(store) >= 0 && obj && (obj.id === undefined || obj.id === null);
   const withId = (store, obj) => { if (needsId(store, obj)) obj.id = root.Logic.newId(); return obj; };
   // Contexto de registo (dispositivo, operador, modo de teste), definido pela app. Não é guardado na base de dados.
-  let CTX = { deviceId: null, operatorId: null, test: false };
+  let CTX = { deviceId: null, operatorId: null, test: false, crew: null };
   function setContext(c) { CTX = Object.assign({}, CTX, c || {}); }
   // Todo o registo gravado passa aqui: atribui chave e campos do contrato v1 (createdAt só em registos novos)
   function prepare(store, obj) {

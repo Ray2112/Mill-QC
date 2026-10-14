@@ -24,7 +24,7 @@ for (const m of src.matchAll(/E\.push\(\{ code: r\.why/g)) ['bin_unknown', 'bin_
 for (const m of src.matchAll(/W\.push\(\{ code: '([a-z_]+)'/g)) dyn.push('jw_' + m[1]);
 for (const m of src.matchAll(/why: '([a-z_]+)'/g)) if (!m[1].startsWith('bin_')) dyn.push('why_' + m[1]);
 for (const m of src.matchAll(/field: '([a-zA-Z]+)'/g)) dyn.push('f_' + m[1]);
-['P', 'A', 'O', 'X'].forEach(g => dyn.push('cg_' + g)); P.OEE_TREAT.forEach(o => dyn.push('oee_' + o));
+['P', 'A', 'O', 'X'].forEach(g => dyn.push('cg_' + g)); Object.values(P.OEE_KEY).forEach(k => dyn.push('oee_' + k));
 for (const m of src.matchAll(/e\.push\('([a-zA-Z]+)'\)/g)) if (!/^(bins|dampenerMaxLh|empty|dirtyBins|temperedBins|grainSilos|dupIds)$/.test(m[1])) dyn.push('f_' + m[1]);
 const missDyn = [...new Set(dyn)].filter(k => !pk.includes(k));
 if (missDyn.length) problems.push('missing dyn ' + missDyn);
