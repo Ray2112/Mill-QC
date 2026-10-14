@@ -294,6 +294,52 @@ t('UUID: alerta e correcção migrados ficam ligados à amostra certa', () => {
   assert.strictEqual(r.alerts[0].sampleId, r.samples[1].id);
 });
 
+// ----- mestre partilhado de limites -----
+t('mestre: ficheiro válido; versões comparam-se por instante ISO', () => {
+  const c = L.defaultConfig();
+  const m = L.limitsMasterFile(c, '2026-10-14T08:00:00.000Z', '2026-10-14T08:00:01.000Z');
+  assert.deepStrictEqual(L.validLimitsMaster(m), { ok: true, errors: [] });
+  assert.strictEqual(L.limitsVersionStatus(undefined, m.version), 'apply');
+  assert.strictEqual(L.limitsVersionStatus('2026-10-14T08:00:00.000Z', '2026-10-14T08:00:00.000Z'), 'same');
+  assert.strictEqual(L.limitsVersionStatus('2026-10-14T09:00:00.000Z', '2026-10-14T08:00:00.000Z'), 'older');
+  assert.strictEqual(L.limitsVersionStatus('2026-10-14T08:00:00.000Z', '2026-10-15T08:00:00.000Z'), 'apply');
+});
+t('mestre: rejeita ficheiro de outra app, versão mal formada, moagem diferente e limites inválidos', () => {
+  const c = L.defaultConfig();
+  const good = L.limitsMasterFile(c, '2026-10-14T08:00:00.000Z', '2026-10-14T08:00:01.000Z');
+  assert.ok(L.validLimitsMaster(Object.assign({}, good, { app: 'outra' })).errors.includes('wrong-file'));
+  assert.ok(L.validLimitsMaster(Object.assign({}, good, { version: '14-10-2026' })).errors.includes('bad-version'));
+  assert.ok(L.validLimitsMaster(Object.assign({}, good, { millType: 'soja' })).errors.includes('bad-mill'));
+  assert.ok(L.validLimitsMaster(Object.assign({}, good, { products: [] })).errors.includes('no-products'));
+  const bad = JSON.parse(JSON.stringify(good));
+  const pid = bad.products[0].id;
+  bad.products[0].limits.moisture = { lo: 15, hi: 10 };          // lo > hi
+  const v = L.validLimitsMaster(bad);
+  assert.strictEqual(v.ok, false);
+  assert.ok(v.errors.includes(pid + '.moisture'));
+  assert.throws(() => L.applyLimitsMaster(c, bad), /invalid-master/);
+  assert.throws(() => L.applyLimitsMaster(c, Object.assign({}, good, { millType: 'wheat' })), /mill-mismatch/);
+});
+t('mestre: aplicar substitui limites, regista alterações e fica com a versão; versão antiga não altera nada', () => {
+  const c = L.defaultConfig();
+  const m1 = L.limitsMasterFile(c, '2026-10-14T08:00:00.000Z', '2026-10-14T08:00:01.000Z');
+  const m2 = JSON.parse(JSON.stringify(m1));
+  m2.version = '2026-10-15T08:00:00.000Z';
+  const pid = m2.products[0].id;
+  m2.products[0].limits.moisture = Object.assign({}, m2.products[0].limits.moisture || {}, { hi: 13.5 });
+  const r = L.applyLimitsMaster(c, m2);
+  assert.strictEqual(r.status, 'apply');
+  assert.strictEqual(r.cfg.limitsVersion, m2.version);
+  assert.ok(r.changes.some(x => x.productId === pid && x.param === 'moisture' && x.field === 'hi' && x.new === 13.5));
+  assert.strictEqual(c.limitsVersion, undefined);                  // configuração de origem não alterada
+  const again = L.applyLimitsMaster(r.cfg, m2);
+  assert.strictEqual(again.status, 'same');
+  assert.strictEqual(again.changes.length, 0);
+  const older = L.applyLimitsMaster(r.cfg, m1);
+  assert.strictEqual(older.status, 'older');
+  assert.strictEqual(older.cfg, r.cfg);                            // não aplicado
+});
+
 console.log('OK —', n, 'grupos de testes passaram');
 // acção por defeito não conta como alteração
 assert.strictEqual(L.limitDiff({ hi: 14 }, { hi: 14, loAct: 'warn', hiAct: 'reject' }).length, 0);

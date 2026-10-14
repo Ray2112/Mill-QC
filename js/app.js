@@ -370,7 +370,7 @@
       t: tms, savedAt: Date.now(), lineId: f.lineId, productId: f.productId, crew: S.crew, period: L.shiftOf(tms).period,
       prodDay: L.prodDay(tms), operator: String(f.operator).trim(), values: ev.values, physical: ev.physical,
       results: ev.results, decision: ev.decision, failures: ev.failures, notes: String(f.notes || '').trim(),
-      limits: JSON.parse(JSON.stringify(prod.limits)), millType: S.cfg.millType
+      limits: JSON.parse(JSON.stringify(prod.limits)), millType: S.cfg.millType, limitsVersion: S.cfg.limitsVersion || null
     };
     if (f.correctsId) { sample.correctsId = f.correctsId; sample.correctionReason = String(f.reason).trim(); }
     const existing = openHold(f.lineId);
@@ -528,6 +528,11 @@
         <button class="btn primary" id="savePin">${esc(t('savePin'))}</button></section>
       <section class="card"><h3>${esc(t('qualityLimits'))}</h3><p class="sub">${esc(t('limitsNote'))}</p>
         <button class="btn" id="openLimits">${esc(t('editLimits'))}</button></section>
+      <section class="card"><h3>${esc(t('limMasterTitle'))}</h3><p class="sub">${esc(t('limMasterNote'))}</p>
+        <p class="sub"><b>${esc(S.cfg.limitsVersion ? t('limMasterVersion', { v: S.cfg.limitsVersion }) : t('limMasterNone'))}</b></p>
+        <label class="fld">${esc(t('pin'))}<input type="password" inputmode="numeric" id="limMasterPin"></label>
+        <button class="btn" id="exportLim">${esc(t('limMasterExport'))}</button>
+        <label class="btn ghost">${esc(t('limMasterImport'))}<input type="file" id="importLim" accept="application/json" hidden></label></section>
       ${PU.settingsCard()}
       <section class="card"><h3>${esc(t('lines'))}</h3>
         ${S.cfg.lines.map(l => `<label class="fld">${esc(l.id)}<input data-linename="${esc(l.id)}" value="${esc(l.name)}"></label>`).join('')}
@@ -568,6 +573,34 @@
         <button class="btn primary big" id="saveLimits">${esc(t('saveLimits'))}</button>
         <button class="btn ghost" data-nav="settings">${esc(t('cancel'))}</button></section>`;
   }
+  // ----- mestre partilhado de limites: exportar / importar (PIN de supervisor) -----
+  async function exportLimitsMaster() {
+    const r = await checkPin($('#limMasterPin').value);
+    if (!r.ok) return toast(pinMsg(r));
+    if (!S.cfg.limitsVersion) { S.cfg = Object.assign({}, S.cfg, { limitsVersion: new Date().toISOString() }); await DB.setConfig('cfg', S.cfg); }
+    const m = L.limitsMasterFile(S.cfg, S.cfg.limitsVersion, new Date().toISOString());
+    const url = URL.createObjectURL(new Blob([JSON.stringify(m, null, 2)], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = 'limites-mestre-' + S.cfg.limitsVersion.replace(/[:.]/g, '-') + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    toast(t('limMasterExported'));
+  }
+  async function importLimitsMaster(file) {
+    if (!file) return;
+    const r = await checkPin($('#limMasterPin').value);
+    if (!r.ok) return toast(pinMsg(r));
+    let m, res;
+    try { m = JSON.parse(await file.text()); res = L.applyLimitsMaster(S.cfg, m); }
+    catch (e) { return toast(t('limMasterBad')); }
+    if (res.status === 'older') return toast(t('limMasterOlder'));
+    if (res.status === 'same') return toast(t('limMasterSame'));
+    if (!confirm(t('limMasterConfirm', { v: m.version, n: res.changes.length }))) return;
+    const now = Date.now(), by = S.operator || 'mestre', reason = t('limMasterReason', { v: m.version });
+    for (const c of res.changes) await DB.add('limitChanges', Object.assign({ t: now, by: by, reason: reason }, c));
+    await DB.setConfig('cfg', res.cfg); S.cfg = res.cfg; S.limitsDraft = null; await reloadData();
+    toast(t('limMasterApplied', { v: m.version, n: res.changes.length })); render();
+  }
   async function saveLimits() {
     const pid = S.limitsDraft.pid, prod = product(pid);
     const by = $('#limBy').value.trim(), reason = $('#limReason').value.trim();
@@ -594,6 +627,7 @@
     L.PARAMS.forEach(p => { if (L.limitDiff(prod.limits[p], newLim[p]).length) newLim[p].src = t('changedBy', { by, d: fmtDT(now).slice(0, 10) }); });
     const cfg = JSON.parse(JSON.stringify(S.cfg));
     cfg.products[cfg.millType].find(p => p.id === pid).limits = newLim;
+    cfg.limitsVersion = new Date().toISOString();                  // nova versão dos limites (ordenável)
     for (const c of changes) await DB.add('limitChanges', Object.assign({ t: now, by, reason }, c));
     await DB.setConfig('cfg', cfg); S.cfg = cfg; S.limitsDraft = null; await reloadData();
     toast(t('limitsSaved', { n: changes.length })); S.view = 'settings'; render();
@@ -620,7 +654,7 @@
   document.addEventListener('click', async e => {
     const pel = e.target.closest(PU.CLICK_SEL);
     if (pel) return PU.onClick(pel);
-    const el = e.target.closest('[data-nav],[data-newsample],[data-run],[data-phys],[data-haction],[data-detail],[data-correct],[data-repday],#saveSample,#physAllOk,#closeModal,#genXlsx,#savePin,#openLimits,#saveLimits,#saveLines,#askNotif,#testAlert,#exportBk');
+    const el = e.target.closest('[data-nav],[data-newsample],[data-run],[data-phys],[data-haction],[data-detail],[data-correct],[data-repday],#saveSample,#physAllOk,#closeModal,#genXlsx,#savePin,#openLimits,#saveLimits,#saveLines,#askNotif,#testAlert,#exportBk,#exportLim');
     if (!el) return;
     if (el.dataset.nav) { S.view = el.dataset.nav; S.modal = null; if (S.view === 'prodset') S.prodDraft = null; if (S.view === 'sample' && !S.form) newForm(); render(); window.scrollTo(0, 0); return; }
     if (el.dataset.repday) { S.repDay = el.dataset.repday; S.view = 'report'; render(); return; }
@@ -642,6 +676,7 @@
       case 'askNotif': if ('Notification' in window) { await Notification.requestPermission(); render(); } else toast(t('unsupported')); return;
       case 'testAlert': beep(); if (navigator.vibrate) navigator.vibrate([300]); notify(t('appTitle'), t('testAlert'), 'test'); return;
       case 'exportBk': return exportBackup();
+      case 'exportLim': return exportLimitsMaster();
     }
   });
   document.addEventListener('input', e => {
@@ -668,6 +703,7 @@
     if (el.id === 'langSel') { S.lang = el.value; await DB.setConfig('lang', S.lang); render(); return; }
     if (el.id === 'millSel') { const cfg = Object.assign({}, S.cfg, { millType: el.value }); await DB.setConfig('cfg', cfg); S.cfg = cfg; S.form = null; render(); return; }
     if (el.id === 'importBk') return importBackup(el.files[0]);
+    if (el.id === 'importLim') { const f = el.files[0]; el.value = ''; return importLimitsMaster(f); }   // limpa para poder escolher o mesmo ficheiro de novo (ex.: após PIN errado)
   });
 
   async function toggleRun(lineId) {
