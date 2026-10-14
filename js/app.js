@@ -83,8 +83,6 @@
   async function load() {
     S.cfg = (await DB.getConfig('cfg')) || L.defaultConfig();
     S.lang = (await DB.getConfig('lang')) || 'pt';
-    S.crew = (await DB.getConfig('crew')) || null;
-    DB.setContext({ crew: S.crew });
     S.operator = (await DB.getConfig('operator')) || '';
     S.lineState = (await DB.getConfig('lineState')) || {};
     S.pinLock = (await DB.getConfig('pinLock')) || { fails: 0, until: 0 };
@@ -189,7 +187,7 @@
         <div class="brand"><b>${esc(t('appTitle'))}</b><span class="mill">${esc(t('mill_' + S.cfg.millType))}</span></div>
         <div class="shiftbar">
           <label>${esc(t('crew'))}
-            <select id="crewSel">${['', ...L.CREWS].map(c => `<option value="${esc(c)}" ${S.crew === c || (!S.crew && !c) ? 'selected' : ''}>${c ? esc(c) : '—'}</option>`).join('')}</select>
+            <b>${esc(L.crewOfTime(Date.now()))}</b>
           </label>
           <span class="pill">${esc(t('shift_' + sh.period))} ${sh.period === 'D' ? '07–19' : '19–07'}</span>
           <span class="clock" id="clock">${fmtTime(Date.now())}</span>
@@ -231,7 +229,6 @@
     if (!products().length) return `<section class="card warnbox"><h2>${esc(t('mill_' + S.cfg.millType))}</h2><p>${esc(t('notConfigured'))}</p></section>`;
     const banners = [];
     if (!S.pinSet) banners.push(`<div class="banner b-warn" data-nav="settings">${esc(t('setPinFirst'))}</div>`);
-    if (!S.crew) banners.push(`<div class="banner b-warn">${esc(t('selectCrew'))}</div>`);
     const rp = reportPendingDay();
     if (rp) banners.push(`<div class="banner b-info" data-repday="${esc(rp)}">${esc(t('reportReady', { d: rp }))}</div>`);
     const od = overdueList();
@@ -310,7 +307,7 @@
         <label class="fld">${esc(t('sampleTime'))}<input type="datetime-local" id="f_time" value="${esc(f.time)}"></label>
         <label class="fld req">${esc(t('operator'))}<input id="f_op" value="${esc(f.operator)}" autocomplete="name"></label>
       </div>
-      <div class="sub">${esc(t('crew'))}: <b>${esc(S.crew || '—')}</b> · ${esc(t('class'))}: ${esc(prod.cls)}</div>
+      <div class="sub">${esc(t('crew'))}: <b>${esc(L.crewOfTime(Date.now()))}</b> · ${esc(t('class'))}: ${esc(prod.cls)}</div>
     </section>
     <section class="card"><h3>${esc(t('hourlyChecks'))}</h3>${hourly.map(p => paramInput(p, prod, ev)).join('')}${physicalBlock(ev)}</section>
     ${shift.length ? `<section class="card"><h3>${esc(t('shiftChecks'))}</h3>${shift.map(p => paramInput(p, prod, ev, pendingShift.includes(p))).join('')}</section>` : ''}
@@ -360,7 +357,6 @@
     const f = S.form, prod = product(f.productId);
     const ev = formEval();
     const tms = new Date(f.time).getTime();
-    if (!S.crew) return toast(t('selectCrew'));
     if (!String(f.operator).trim()) return toast(t('needOperator'));
     if (!isFinite(tms)) return toast(t('badTime'));
     if (tms > Date.now() + 5 * 60000) return toast(t('futureTime'));
@@ -368,7 +364,7 @@
     if (f.correctsId && !String(f.reason).trim()) return toast(t('needReason'));
     if (ev.errors.length) return toast(ev.errors.some(e => e.code === 'empty') ? t('enterValues') : ev.errors.some(e => e.code === 'incomplete') ? t('physIncomplete') : t('fixInvalid'));
     const sample = {
-      t: tms, savedAt: Date.now(), lineId: f.lineId, productId: f.productId, crew: S.crew, period: L.shiftOf(tms).period,
+      t: tms, savedAt: Date.now(), lineId: f.lineId, productId: f.productId, crew: L.crewOfTime(tms), period: L.shiftOf(tms).period,
       prodDay: L.prodDay(tms), operator: String(f.operator).trim(), values: ev.values, physical: ev.physical,
       results: ev.results, decision: ev.decision, failures: ev.failures, notes: String(f.notes || '').trim(),
       limits: JSON.parse(JSON.stringify(prod.limits)), millType: S.cfg.millType, limitsVersion: S.cfg.limitsVersion || null
@@ -380,7 +376,7 @@
       if (s.decision === 'reject') return [L.newHold(s)];
       return [];
     };
-    const alertObj = (sample.decision === 'warn' || sample.decision === 'reject') ? { t: tms, lineId: f.lineId, productId: f.productId, decision: sample.decision, crew: S.crew } : null;
+    const alertObj = (sample.decision === 'warn' || sample.decision === 'reject') ? { t: tms, lineId: f.lineId, productId: f.productId, decision: sample.decision, crew: L.crewOfTime(tms) } : null;
     try {
       await DB.saveSampleBundle(sample, holdFn, alertObj);
     } catch (e) { return toast(t('saveFailed')); }
@@ -693,7 +689,6 @@
   document.addEventListener('change', async e => {
     const el = e.target;
     if (PU.onChange(el)) return;
-    if (el.id === 'crewSel') { S.crew = el.value || null; await DB.setConfig('crew', S.crew); DB.setContext({ crew: S.crew }); render(); return; }
     if (el.dataset.lineprod) return changeLineProduct(el.dataset.lineprod, el.value, el);
     if (el.id === 'f_line') { S.form.lineId = el.value; const st = S.lineState[el.value]; if (st && st.productId) S.form.productId = st.productId; render(); return; }
     if (el.id === 'f_prod') { S.form.productId = el.value; render(); return; }
