@@ -307,6 +307,55 @@
         warn: samples.filter(x => x.decision === 'warn').length, reject: samples.filter(x => x.decision === 'reject').length } };
   }
 
+  // ---------- chaves de registo (UUID) ----------
+  // Lojas de CQ com chave 'id' = UUID v4 (texto). Antes eram números autoincrement, só válidos neste telemóvel.
+  const QC_KEYED = ['samples', 'holds', 'alerts', 'limitChanges', 'reports'];
+  function newId(rnd) {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+    const r = rnd || Math.random;
+    let s = '';
+    for (let i = 0; i < 36; i++) {
+      if (i === 8 || i === 13 || i === 18 || i === 23) s += '-';
+      else if (i === 14) s += '4';
+      else if (i === 19) s += (8 + Math.floor(r() * 4)).toString(16);
+      else s += Math.floor(r() * 16).toString(16);
+    }
+    return s;
+  }
+  // Código curto mostrado ao utilizador (8 hex do UUID). O UUID completo fica no registo e na cópia de segurança.
+  function shortId(id) { return id === undefined || id === null ? '' : String(id).replace(/-/g, '').slice(0, 8); }
+  // Migração de chaves numéricas → UUID, com reescrita das referências:
+  //   samples.correctsId · holds.samples[] / openedBySample / closedBySample · alerts.sampleId
+  // Entrada: {samples, holds, alerts, limitChanges, reports} (ids numéricos ou já UUID). Saída: {data, warnings}.
+  // Idempotente: ids de texto mantêm-se. Referências sem registo correspondente ficam tal como estão e são listadas em warnings.
+  function qcUpgradeKeys(input, rnd) {
+    const maps = {};
+    QC_KEYED.forEach(s => { maps[s] = new Map(); });
+    const data = {};
+    QC_KEYED.forEach(s => {
+      data[s] = (input[s] || []).filter(r => r && typeof r === 'object').map(r => {
+        const oldId = r.id;
+        const id = (typeof oldId === 'string' && oldId) ? oldId : newId(rnd);
+        if (oldId !== undefined && oldId !== null) maps[s].set(String(oldId), id);
+        return Object.assign({}, r, { id });
+      });
+    });
+    const warnings = [];
+    const ref = v => {
+      const k = String(v);
+      if (maps.samples.has(k)) return maps.samples.get(k);
+      warnings.push('ref:' + k);
+      return v;
+    };
+    data.samples.forEach(r => { if (r.correctsId !== undefined && r.correctsId !== null) r.correctsId = ref(r.correctsId); });
+    data.holds.forEach(r => {
+      ['openedBySample', 'closedBySample'].forEach(k => { if (r[k] !== undefined && r[k] !== null) r[k] = ref(r[k]); });
+      if (Array.isArray(r.samples)) r.samples = r.samples.map(ref);
+    });
+    data.alerts.forEach(r => { if (r.sampleId !== undefined && r.sampleId !== null) r.sampleId = ref(r.sampleId); });
+    return { data, warnings };
+  }
+
   // ---------- cópia de segurança ----------
   function validBackup(o) {
     if (!o || typeof o !== 'object' || o.app !== 'mill-qc' || typeof o.format !== 'number') return false;
@@ -325,7 +374,8 @@
   const api = { VERSION, DECISIONS, RANK, CREWS, MILL_TYPES, PHYSICAL, PARAMS, EXTRA, UNITS, FREQS,
     defaultProducts, defaultConfig, num, pct, evalParam, hasLimits, evaluateSample, worst,
     prodDay, prodDayRange, shiftOf, ymd, dueStatus, newHold, holdAfterSample, addHoldAction,
-    effective, validateLimit, limitDiff, dayReport, validBackup, findProduct };
+    effective, validateLimit, limitDiff, dayReport, validBackup, findProduct,
+    QC_KEYED, newId, shortId, qcUpgradeKeys };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Logic = api;
 })(typeof window !== 'undefined' ? window : this);
