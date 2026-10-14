@@ -10,7 +10,7 @@
   const STORES = ['samples', 'holds', 'alerts', 'limitChanges', 'reports'];   // chave: id (UUID)
   const PSTORES = ['jobs', 'binEvents', 'shiftLog', 'siloSnapshots', 'prodChanges', 'grainMoves'];   // chave: uid
   const ALL = STORES.concat(PSTORES);
-  const LOCAL_KEYS = ['pin', 'pinLock', 'deviceId'];               // ficam só neste dispositivo
+  const LOCAL_KEYS = ['pin', 'pinLock', 'deviceId', 'ctx'];        // ficam só neste dispositivo (ctx = operador e modo de teste)
   let dbp = null;
 
   function createKeyedStore(db, s) {
@@ -68,15 +68,26 @@
   // Registos de CQ recebem UUID ao ser criados (nunca reutilizam uma chave apagada)
   const needsId = (store, obj) => STORES.indexOf(store) >= 0 && obj && (obj.id === undefined || obj.id === null);
   const withId = (store, obj) => { if (needsId(store, obj)) obj.id = root.Logic.newId(); return obj; };
+  // Contexto de registo (dispositivo, operador, modo de teste), definido pela app. Não é guardado na base de dados.
+  let CTX = { deviceId: null, operatorId: null, test: false };
+  function setContext(c) { CTX = Object.assign({}, CTX, c || {}); }
+  // Todo o registo gravado passa aqui: atribui chave e campos do contrato v1 (createdAt só em registos novos)
+  function prepare(store, obj) {
+    if (!obj || ALL.indexOf(store) < 0) return obj;
+    const isNew = STORES.indexOf(store) >= 0 ? needsId(store, obj) : !obj.createdAt;
+    withId(store, obj);
+    Object.assign(obj, root.Logic.stampContract(obj, CTX, isNew));
+    return obj;
+  }
 
   // add: só cria (nunca sobrescreve)
   function add(store, obj) {
-    withId(store, obj);
+    prepare(store, obj);
     return tx([store], 'readwrite', t => req(t.objectStore(store).add(obj)));
   }
   // put: actualização intencional (retenções, configuração)
   function put(store, obj) {
-    withId(store, obj);
+    prepare(store, obj);
     return tx([store], 'readwrite', t => req(t.objectStore(store).put(obj)));
   }
   function all(store) {
@@ -91,18 +102,18 @@
   // Grava amostra + (opcional) retenção nova/actualizada + alerta, tudo-ou-nada. Ids gerados antes da escrita,
   // para que a retenção e o alerta referenciem o UUID da amostra.
   function saveSampleBundle(sample, holdFn, alertObj) {
-    withId('samples', sample);
+    prepare('samples', sample);
     return tx(['samples', 'holds', 'alerts'], 'readwrite', async t => {
       await req(t.objectStore('samples').add(sample));
       const holdOps = holdFn ? holdFn(sample) : [];
-      for (const h of holdOps) { withId('holds', h); await req(t.objectStore('holds').put(h)); }
-      if (alertObj) { withId('alerts', alertObj); alertObj.sampleId = sample.id; await req(t.objectStore('alerts').add(alertObj)); }
+      for (const h of holdOps) { prepare('holds', h); await req(t.objectStore('holds').put(h)); }
+      if (alertObj) { prepare('alerts', alertObj); alertObj.sampleId = sample.id; await req(t.objectStore('alerts').add(alertObj)); }
       return sample.id;
     });
   }
   // Vários registos em várias lojas, tudo-ou-nada. ops: [{store, op:'add'|'put', obj}]
   function batch(ops) {
-    ops.forEach(o => withId(o.store, o.obj));
+    ops.forEach(o => prepare(o.store, o.obj));
     const stores = [...new Set(ops.map(o => o.store))];
     return tx(stores, 'readwrite', async t => {
       for (const o of ops) await req(t.objectStore(o.store)[o.op === 'put' ? 'put' : 'add'](o.obj));
@@ -138,5 +149,5 @@
     });
     return { warnings };
   }
-  root.DB = { open, add, put, all, batch, getConfig, setConfig, saveSampleBundle, exportAll, importAll, DB_NAME, DB_VERSION, FORMAT };
+  root.DB = { open, add, put, all, batch, getConfig, setConfig, setContext, saveSampleBundle, exportAll, importAll, DB_NAME, DB_VERSION, FORMAT };
 })(window);

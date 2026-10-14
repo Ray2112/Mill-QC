@@ -432,11 +432,40 @@
     return list.find(p => p.id === id) || null;
   }
 
+  // Contrato de dados v1: campos em todo o registo. Só preenche o que falta (nunca sobrescreve valores existentes).
+  // isNew: createdAt só é definido em registos novos. ctx: {deviceId, operatorId, test, now}
+  const CONTRACT_VERSION = 1;
+  function stampContract(obj, ctx, isNew) {
+    const out = Object.assign({}, obj);
+    if (!out.schemaVersion) out.schemaVersion = CONTRACT_VERSION;
+    if (!out.appVersion) out.appVersion = VERSION;
+    if (!out.deviceId && ctx && ctx.deviceId) out.deviceId = ctx.deviceId;
+    if (isNew && !out.createdAt) out.createdAt = (ctx && ctx.now) || new Date().toISOString();
+    if (out.operatorId === undefined) out.operatorId = (ctx && ctx.operatorId) || null;
+    if (out.test === undefined) out.test = !!(ctx && ctx.test);
+    if (out.uploadedAt === undefined) out.uploadedAt = null;
+    return out;
+  }
+  // Leituras dentro de um trabalho: chave 'uuid' (versões ≤1.4.0) passa a 'uid'; leituras sem chave recebem uma.
+  // Devolve o mesmo objecto se nada mudar; senão uma cópia do trabalho com as leituras corrigidas.
+  function normalizeReadings(job, newKey) {
+    if (!job || !Array.isArray(job.readings)) return job;
+    let changed = false;
+    const readings = job.readings.map(r => {
+      const hasUuid = Object.prototype.hasOwnProperty.call(r, 'uuid');
+      if (r.uid && !hasUuid) return r;
+      changed = true;
+      const rest = Object.assign({}, r); delete rest.uuid;
+      if (!rest.uid) rest.uid = (hasUuid && r.uuid) || newKey();
+      return rest;
+    });
+    return changed ? Object.assign({}, job, { readings }) : job;
+  }
   const api = { VERSION, DECISIONS, RANK, CREWS, MILL_TYPES, PHYSICAL, PARAMS, EXTRA, UNITS, FREQS,
     defaultProducts, defaultConfig, num, pct, evalParam, hasLimits, evaluateSample, worst,
     prodDay, prodDayRange, shiftOf, ymd, dueStatus, newHold, holdAfterSample, addHoldAction,
     effective, validateLimit, limitDiff, dayReport, validBackup, findProduct,
-    QC_KEYED, newId, shortId, qcUpgradeKeys,
+    QC_KEYED, newId, shortId, qcUpgradeKeys, CONTRACT_VERSION, stampContract, normalizeReadings,
     LIMITS_MASTER_APP, limitsMasterFile, validLimitsMaster, limitsVersionStatus, applyLimitsMaster };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Logic = api;

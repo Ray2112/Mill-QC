@@ -355,3 +355,45 @@ assert.strictEqual(L.evalParam(3.0, { hi: 3, hiOp: 'le', hiAct: 'reject' }).deci
 assert.strictEqual(L.evalParam(4.9, { lo: 5, loOp: 'ge', loAct: 'warn' }).decision, 'warn');      // mínimo com aviso, não retém
 assert.strictEqual(L.evalParam(5, { lo: 5, loOp: 'gt', loAct: 'warn' }).decision, 'warn');
 console.log('OK — limitDiff por defeito');
+
+// ---- contrato v1 ----
+{
+  const ctx = { deviceId: 'D-QC', operatorId: 'OP-7', test: true, now: '2026-10-14T08:00:00.000Z' };
+  const s = L.stampContract({ id: 'x1', t: 1 }, ctx, true);
+  assert.strictEqual(s.schemaVersion, 1);
+  assert.strictEqual(L.CONTRACT_VERSION, 1);
+  assert.strictEqual(s.appVersion, L.VERSION);
+  assert.strictEqual(s.deviceId, 'D-QC');
+  assert.strictEqual(s.operatorId, 'OP-7');
+  assert.strictEqual(s.test, true);
+  assert.strictEqual(s.uploadedAt, null);
+  assert.strictEqual(s.createdAt, '2026-10-14T08:00:00.000Z');
+  // registo existente: não recebe createdAt nem altera valores já gravados
+  const old = { id: 'x2', deviceId: 'D-OLD', operatorId: null, test: false, createdAt: '2026-01-01T00:00:00.000Z' };
+  const u = L.stampContract(old, ctx, false);
+  assert.strictEqual(u.deviceId, 'D-OLD');
+  assert.strictEqual(u.test, false);
+  assert.strictEqual(u.createdAt, '2026-01-01T00:00:00.000Z');
+  const legacy = L.stampContract({ id: 'x3' }, null, false);
+  assert.strictEqual(legacy.createdAt, undefined);
+  assert.strictEqual(legacy.test, false);
+  assert.strictEqual(legacy.operatorId, null);
+  console.log('OK — contrato v1 (stampContract)');
+}
+{
+  // leituras com 'uuid' (≤1.4.0) passam a 'uid'; leituras sem chave recebem uma; nada muda se já estiver certo
+  let n = 0; const keyFn = () => 'K' + (++n);
+  const job = { id: 'J1', readings: [
+    { uuid: 'U-A', t: 1, kind: 'shift' },
+    { t: 2, kind: 'start' },
+    { uid: 'U-C', t: 3, kind: 'shift' },
+  ] };
+  const fixed = L.normalizeReadings(job, keyFn);
+  assert.notStrictEqual(fixed, job);
+  assert.deepStrictEqual(fixed.readings.map(r => r.uid), ['U-A', 'K1', 'U-C']);
+  assert.ok(fixed.readings.every(r => !('uuid' in r)));
+  assert.strictEqual(job.readings[0].uuid, 'U-A', 'o trabalho original não é alterado');
+  assert.strictEqual(L.normalizeReadings(fixed, keyFn), fixed, 'segunda passagem não altera nada');
+  assert.strictEqual(L.normalizeReadings({ id: 'J2' }, keyFn).readings, undefined);
+  console.log('OK — normalizeReadings (uuid → uid)');
+}

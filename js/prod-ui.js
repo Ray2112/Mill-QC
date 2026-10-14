@@ -41,10 +41,21 @@ window.ProdUI = function (C) {
         await DB.setConfig('cfgP', n); S.cfgP = n;
       } catch (e) { /* mantém a lista antiga; tenta de novo na próxima abertura */ }
     }
+    S.ctx = Object.assign({ operatorId: '', testMode: false }, (await DB.getConfig('ctx')) || {});
+    applyCtx();
     await reload();
+  }
+  // Operador e modo de teste (deste dispositivo) vão para todos os registos novos (contrato v1)
+  function applyCtx() {
+    DB.setContext({ deviceId: S.deviceId, operatorId: (S.ctx && S.ctx.operatorId) || null, test: !!(S.ctx && S.ctx.testMode) });
   }
   async function reload() {
     S.jobs = await DB.all('jobs');
+    // leituras de versões ≤1.4.0 (chave 'uuid') migram para 'uid' uma vez; o trabalho é regravado só se mudar
+    for (let i = 0; i < S.jobs.length; i++) {
+      const n = L.normalizeReadings(S.jobs[i], newUid);
+      if (n !== S.jobs[i]) { await DB.put('jobs', n); S.jobs[i] = n; }
+    }
     S.binEvents = await DB.all('binEvents');
     S.shiftLog = await DB.all('shiftLog');
     S.siloSnaps = await DB.all('siloSnapshots');
@@ -54,7 +65,7 @@ window.ProdUI = function (C) {
   let seq = 0;
   // UUID v4 por registo (o dispositivo vai em deviceId); recurso antigo se randomUUID não existir
   const newUid = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : P.uid(S.deviceId, now(), (++seq).toString(36) + Math.random().toString(36).slice(2, 6));
-  const base = tms => ({ uid: newUid(), deviceId: S.deviceId, createdAt: now(), crew: S.crew, period: L.shiftOf(tms).period, prodDay: L.prodDay(tms) });
+  const base = tms => ({ uid: newUid(), deviceId: S.deviceId, createdAt: now(), crew: S.crew, period: L.shiftOf(tms).period, prodDay: L.prodDay(tms), shift: L.prodDay(tms) + '/' + L.shiftOf(tms).period });
   const snapshot = () => (S.siloSnaps || []).slice().sort((a, b) => b.importedAt - a.importedAt)[0] || null;
   const runningJob = lineId => (S.jobs || []).find(j => j.status === 'running' && j.lineId === lineId);
   const lineIds = () => S.cfg.lines.map(l => l.id);
@@ -75,7 +86,8 @@ window.ProdUI = function (C) {
     const tab = S.prodTab || 'jobs';
     const tabs = ['jobs', 'grain', 'log', 'bins'].map(k => `<button class="btn ${tab === k ? 'primary' : 'ghost'} small" data-ptab="${k}">${esc(t('ptab_' + k))}</button>`).join(' ');
     const body = tab === 'log' ? viewLog() : tab === 'bins' ? viewBins() : tab === 'grain' ? viewGrain() : viewJobs();
-    return `<section class="card"><h2>${esc(t('nav_prod'))}</h2><div class="row">${tabs}</div></section>${body}`;
+    const banner = S.ctx && S.ctx.testMode ? `<section class="card"><b>${esc(t('ctxTestBanner'))}</b></section>` : '';
+    return `${banner}<section class="card"><h2>${esc(t('nav_prod'))}</h2><div class="row">${tabs}</div></section>${body}`;
   }
 
   // ---------- ordens de produção ----------
@@ -252,7 +264,7 @@ window.ProdUI = function (C) {
     const by = ($('#rd_by_' + CSS.escape(uid)) || {}).value || '';
     if (!by.trim()) return C.toast(t('needName'));
     const tms = now(), sh = L.shiftOf(tms);
-    const rd = { uuid: newUid(), t: tms, crew: S.crew, period: sh.period, prodDay: sh.day, m0: c.m0, waterLh: c.waterLh, over: c.over, by: by.trim(), kind: 'shift' };
+    const rd = { uid: newUid(), deviceId: S.deviceId, createdAt: new Date(now()).toISOString(), t: tms, crew: S.crew, period: sh.period, prodDay: sh.day, m0: c.m0, waterLh: c.waterLh, over: c.over, by: by.trim(), kind: 'shift' };
     try { await DB.put('jobs', Object.assign({}, j, { readings: (j.readings || []).concat([rd]) })); } catch (e) { return C.toast(t('saveFailed')); }
     S.readForm = null; S.operator = rd.by; await DB.setConfig('operator', S.operator);
     await reload(); C.toast(c.over ? t('overDampener') : t('readingSaved', { lh: fmtKg(c.waterLh) })); keepScroll();
@@ -415,7 +427,7 @@ window.ProdUI = function (C) {
       warnings: r.warnings.map(w => w.code + (w.bin ? ':' + w.bin : '') + (w.productId ? '@' + w.productId : '')),
       leader: String(f.leader).trim(), leaderCrew: leaderCrewOf(String(f.leader).trim())
     });
-    job.readings = [{ t: tms, crew: S.crew, period: job.period, prodDay: job.prodDay, m0: job.m0, waterLh: job.waterLh, by: job.leader, kind: 'start' }];
+    job.readings = [{ uid: newUid(), deviceId: S.deviceId, createdAt: new Date(tms).toISOString(), t: tms, crew: S.crew, period: job.period, prodDay: job.prodDay, m0: job.m0, waterLh: job.waterLh, by: job.leader, kind: 'start' }];
     let seq = 0;
     const ops = [{ store: 'jobs', op: 'add', obj: job }].concat(...outs.map(o => o.bins.map(b => ({ store: 'binEvents', op: 'add',
       obj: Object.assign(base(tms), { binId: b, type: 'FILL', productId: o.productId, jobUid: job.uid, lineId: f.lineId, t: tms, seq: seq++, by: job.leader }) }))));
@@ -669,7 +681,10 @@ window.ProdUI = function (C) {
   // ---------- definições de produção ----------
   function settingsCard() {
     const c = S.cfgP;
-    return `<section class="card"><h3>${esc(t('prodSettings'))}</h3>
+    const ctxCard = `<section class="card"><h3>${esc(t('ctxTitle'))}</h3><p class="sub">${esc(t('ctxNote'))}</p>
+      <label class="fld">${esc(t('ctxOperator'))}<input data-ctx="operatorId" value="${esc((S.ctx && S.ctx.operatorId) || '')}" maxlength="40"></label>
+      <label class="chk"><input type="checkbox" data-ctx="testMode" ${S.ctx && S.ctx.testMode ? 'checked' : ''}> ${esc(t('ctxTest'))}</label></section>`;
+    return ctxCard + `<section class="card"><h3>${esc(t('prodSettings'))}</h3>
       <p class="sub">${esc(t('prodSettingsSummary', { c: lineIds().map(id => id + ' ' + fmtKg(c.lineTpd[id]) + ' t/d').join(' · '), d: lineIds().map(id => id + ' ' + fmtKg(P.dampenerMax(c, id))).join(' · '), b: c.bins.length }))}</p>
       <button class="btn" data-nav="prodset">${esc(t('editProdSettings'))}</button></section>
       <section class="card"><h3>${esc(t('codesTitle'))}</h3>
@@ -862,8 +877,15 @@ window.ProdUI = function (C) {
     if (el.dataset.lf && S.logForm && el.tagName !== 'SELECT') { S.logForm[el.dataset.lf] = el.value; return true; }
     return false;
   }
+  async function saveCtx(k, v) {
+    S.ctx = Object.assign({ operatorId: '', testMode: false }, S.ctx, { [k]: v });
+    await DB.setConfig('ctx', S.ctx);
+    applyCtx();
+    C.render();
+  }
   function onChange(el) {
     if (el.dataset.jo && S.jobForm) { const [i, k] = el.dataset.jo.split('|'); if (S.jobForm.outputs[+i]) S.jobForm.outputs[+i][k] = el.value; keepScroll(); return true; }
+    if (el.dataset.ctx) { saveCtx(el.dataset.ctx, el.type === 'checkbox' ? el.checked : el.value.trim().slice(0, 40)); return true; }
     if (el.dataset.jf && S.jobForm) {
       const k = el.dataset.jf;
       S.jobForm[k] = el.type === 'checkbox' ? el.checked : el.value;
