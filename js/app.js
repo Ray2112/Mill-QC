@@ -445,7 +445,7 @@
     const open = S.detailId === x.id;
     return `<div class="rowitem ${sup ? 'superseded' : ''}" data-detail="${x.id}">
       <div class="row between"><span><b>${esc(fmtTime(x.t))}</b> · ${esc(lineName(x.lineId))} · ${esc(prodName(x.productId))}</span><span class="chip ${decCls(x.decision)}">${esc(decLabel(x.decision))}</span></div>
-      <small>#${x.id} · ${esc(t('crew'))} ${esc(x.crew)} · ${esc(x.operator)}${x.correctsId ? ' · ' + esc(t('corrects', { id: x.correctsId })) : ''}${sup ? ' · ' + esc(t('supersededTag')) : ''}</small>
+      <small>#${esc(L.shortId(x.id))} · ${esc(t('crew'))} ${esc(x.crew)} · ${esc(x.operator)}${x.correctsId ? ' · ' + esc(t('corrects', { id: L.shortId(x.correctsId) })) : ''}${sup ? ' · ' + esc(t('supersededTag')) : ''}</small>
       <div><small>${esc(vals)}${x.physical ? ' · ' + esc(t('physical')) + ': ' + esc(Object.values(x.physical).includes('abn') ? t('abnormal') : t('normal')) : ''}</small></div>
       ${open ? `<div class="detail">${x.failures.length ? x.failures.map(f => `<div class="${decCls(f.decision)} pad">${esc(f.param in { odour: 1, colour: 1, mould: 1, insects: 1, foreign: 1 } ? t('ph_' + f.param) : paramLabel(f.param, prod))}: ${esc(f.value === 'abn' ? t('abnormal') : fmtNum(f.value))} — ${esc(decLabel(f.decision))}</div>`).join('') : ''}
         ${x.notes ? `<p><small>${esc(x.notes)}</small></p>` : ''}${x.correctionReason ? `<p><small>${esc(t('correctionReason'))}: ${esc(x.correctionReason)}</small></p>` : ''}
@@ -488,7 +488,7 @@
         g.moisture.avg, g.moisture.min, g.moisture.max, g.fat.avg, g.fat.min, g.fat.max, g.fibre.avg, g.hoursWithMoisture + '/12'])]);
     const P = L.PARAMS;
     add(t('x_samples'), [['#', t('dateTime'), t('shift'), t('crew'), t('line'), t('product'), t('operator'), ...P.map(p => t('p_' + p)), t('physical'), t('decision'), t('failures'), t('notes'), t('correctionOf'), t('correctionReason')],
-      ...r.samples.map(x => [x.id, fmtDT(x.t), t('shift_' + L.shiftOf(x.t).period), x.crew, lineName(x.lineId), prodName(x.productId), x.operator,
+      ...r.samples.map(x => [L.shortId(x.id), fmtDT(x.t), t('shift_' + L.shiftOf(x.t).period), x.crew, lineName(x.lineId), prodName(x.productId), x.operator,
         ...P.map(p => x.values && x.values[p] !== undefined ? x.values[p] : ''),
         x.physical ? (Object.values(x.physical).includes('abn') ? t('abnormal') + ': ' + Object.keys(x.physical).filter(k => x.physical[k] === 'abn').map(k => t('ph_' + k)).join(', ') : t('normal')) : '',
         decLabel(x.decision), x.failures.map(f => (f.value === 'abn' ? t('ph_' + f.param) : paramLabel(f.param, product(x.productId)) + '=' + f.value) + ' (' + decLabel(f.decision) + ')').join('; '),
@@ -627,9 +627,9 @@
     if (el.dataset.newsample) { newForm(el.dataset.newsample); S.view = 'sample'; render(); window.scrollTo(0, 0); return; }
     if (el.dataset.run) return toggleRun(el.dataset.run);
     if (el.dataset.phys) { S.form.physical[el.dataset.phys] = el.dataset.pv; const y = window.scrollY; render(); window.scrollTo(0, y); return; }
-    if (el.dataset.haction) return recordHoldAction(Number(el.dataset.haction));
-    if (el.dataset.correct) { e.stopPropagation(); newForm(null, Number(el.dataset.correct)); S.view = 'sample'; render(); window.scrollTo(0, 0); return; }
-    if (el.dataset.detail) { if (e.target.closest('a,button')) return; const id = Number(el.dataset.detail); S.detailId = S.detailId === id ? null : id; render(); return; }
+    if (el.dataset.haction) return recordHoldAction(el.dataset.haction);
+    if (el.dataset.correct) { e.stopPropagation(); newForm(null, el.dataset.correct); S.view = 'sample'; render(); window.scrollTo(0, 0); return; }
+    if (el.dataset.detail) { if (e.target.closest('a,button')) return; const id = el.dataset.detail; S.detailId = S.detailId === id ? null : id; render(); return; }
     switch (el.id) {
       case 'saveSample': return saveSample();
       case 'physAllOk': L.PHYSICAL.forEach(k => { S.form.physical[k] = 'ok'; }); { const y = window.scrollY; render(); window.scrollTo(0, y); } return;

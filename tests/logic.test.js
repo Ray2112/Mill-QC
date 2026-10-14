@@ -223,6 +223,77 @@ t('backup válido / adulterado', () => {
   assert.ok(!L.validBackup(Object.assign({}, ok, { holds: [{ lineId: 'C', status: 'hack' }] })));
 });
 
+// ----- chaves UUID (v4) -----
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+t('newId: UUID v4 (randomUUID e fallback)', () => {
+  assert.ok(UUID_RE.test(L.newId()));
+  const seq = [0.5, 0.25, 0.75];
+  const rnd = () => seq.length ? seq.shift() : 0.1;
+  const saved = globalThis.crypto; globalThis.crypto = undefined;
+  try { assert.ok(UUID_RE.test(L.newId(rnd))); } finally { globalThis.crypto = saved; }
+});
+t('shortId: 8 hex sem hífens; vazio para null', () => {
+  assert.strictEqual(L.shortId('3f9a1c2e-0000-4000-8000-123456789abc'), '3f9a1c2e');
+  assert.strictEqual(L.shortId(null), '');
+  assert.strictEqual(L.shortId(12), '12');
+});
+t('qcUpgradeKeys: ids numéricos → UUID e referências reescritas', () => {
+  const legacy = {
+    samples: [{ id: 1, t: 10, lineId: 'L1' }, { id: 2, t: 20, lineId: 'L1', correctsId: 1 }, { id: 3, t: 30, lineId: 'L1' }],
+    holds: [{ id: 1, lineId: 'L1', openedBySample: 1, closedBySample: 2, samples: [1, 2] }],
+    alerts: [{ id: 1, sampleId: 1 }, { id: 2, sampleId: 3 }],
+    limitChanges: [{ id: 1, productId: 'p' }],
+    reports: [{ id: 1, day: '2026-10-13', t: 5 }]
+  };
+  const { data, warnings } = L.qcUpgradeKeys(legacy);
+  assert.deepStrictEqual(warnings, []);
+  const [s1, s2, s3] = data.samples.map(s => s.id);
+  [s1, s2, s3, data.holds[0].id, data.alerts[0].id, data.alerts[1].id, data.limitChanges[0].id, data.reports[0].id]
+    .forEach(id => assert.ok(UUID_RE.test(id), 'não é UUID: ' + id));
+  assert.strictEqual(new Set([s1, s2, s3]).size, 3);
+  assert.strictEqual(data.samples[1].correctsId, s1);
+  assert.strictEqual(data.holds[0].openedBySample, s1);
+  assert.strictEqual(data.holds[0].closedBySample, s2);
+  assert.deepStrictEqual(data.holds[0].samples, [s1, s2]);
+  assert.strictEqual(data.alerts[0].sampleId, s1);
+  assert.strictEqual(data.alerts[1].sampleId, s3);
+  assert.strictEqual(data.samples[0].t, 10);                 // outros campos intactos
+  assert.strictEqual(legacy.samples[0].id, 1);               // entrada não mutada
+});
+t('qcUpgradeKeys: idempotente (segunda passagem não muda nada)', () => {
+  const once = L.qcUpgradeKeys({ samples: [{ id: 7, t: 1, lineId: 'L' }], holds: [{ id: 2, samples: [7], openedBySample: 7 }] }).data;
+  const twice = L.qcUpgradeKeys(once).data;
+  assert.deepStrictEqual(twice, once);
+});
+t('qcUpgradeKeys: referência sem registo fica tal como está e é assinalada', () => {
+  const r = L.qcUpgradeKeys({ samples: [{ id: 1, t: 1, lineId: 'L' }], alerts: [{ id: 1, sampleId: 99 }] });
+  assert.strictEqual(r.data.alerts[0].sampleId, 99);
+  assert.deepStrictEqual(r.warnings, ['ref:99']);
+});
+t('qcUpgradeKeys: lista vazia ou ausente', () => {
+  const r = L.qcUpgradeKeys({});
+  L.QC_KEYED.forEach(s => assert.deepStrictEqual(r.data[s], []));
+});
+t('UUID: correcção (effective) e retenção (holdAfterSample) funcionam com chaves de texto', () => {
+  const a = { id: L.newId(), t: 1, lineId: 'L1', productId: 'p', decision: 'accept', failures: [] };
+  const b = { id: L.newId(), t: 2, lineId: 'L1', productId: 'p', decision: 'accept', failures: [], correctsId: a.id };
+  assert.deepStrictEqual(L.effective([a, b]).map(s => s.id), [b.id]);
+  const rej = { id: L.newId(), t: 3, lineId: 'L1', productId: 'p', decision: 'reject', failures: [{ param: 'hi', decision: 'reject' }] };
+  const h = L.newHold(rej);
+  assert.strictEqual(h.openedBySample, rej.id);
+  const ok = { id: L.newId(), t: 4, lineId: 'L1', productId: 'p', decision: 'accept', failures: [] };
+  const h2 = L.holdAfterSample(Object.assign({}, h, { status: 'action' }), ok);
+  assert.strictEqual(h2.status, 'closed');
+  assert.strictEqual(h2.closedBySample, ok.id);
+  assert.deepStrictEqual(h2.samples, [rej.id, ok.id]);
+});
+t('UUID: alerta e correcção migrados ficam ligados à amostra certa', () => {
+  const r = L.qcUpgradeKeys({ samples: [{ id: 5, t: 1, lineId: 'L' }, { id: 6, t: 2, lineId: 'L', correctsId: 5 }], alerts: [{ id: 3, sampleId: 6 }] }).data;
+  assert.strictEqual(L.effective(r.samples).length, 1);
+  assert.strictEqual(L.effective(r.samples)[0].id, r.samples[1].id);
+  assert.strictEqual(r.alerts[0].sampleId, r.samples[1].id);
+});
+
 console.log('OK —', n, 'grupos de testes passaram');
 // acção por defeito não conta como alteração
 assert.strictEqual(L.limitDiff({ hi: 14 }, { hi: 14, loAct: 'warn', hiAct: 'reject' }).length, 0);
