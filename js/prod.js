@@ -15,78 +15,101 @@
   const VERSION = '1.6.0';
   const COLOURS = ['Amarelo', 'Branco'];
   const SILO_GRADES = ['G1', 'G2', 'OFF', 'PRI'];          // designações da app de Silos (REJ nunca vai a moagem)
-  // Códigos de paragem FMO — versão 2 (Zhax, 09-10-2026): nomes EN corrigidos por Zhax; nomes PT revistos
-  // (pré-AO90, termos de moagem) a partir do modelo de dados mestre 2026-10-09_Carrinho-Master-Data_Template_v0.1.xlsx.
-  // [código, nome EN, nome PT, categoria V1, categoria V2, Tier 3]. V2 é a categoria de referência.
-  // Tratamento OEE: vazio até definido com autorização. P17: V2 ainda por definir.
-  const DOWNTIME_SOURCE = 'Downtime Codes v2 (Zhax, 09-10-2026)';
-  const OLD_DOWNTIME_SOURCES = ['Downtime_Codes.xlsx (08-10-2026)'];   // listas por defeito anteriores (actualizadas automaticamente se nunca editadas)
+  // Códigos de paragem FMO — fonte: 2026-09-30_FMO_Downtime_Codes_v2.xlsx (folha Folha1), autorizado por Zhax (14-10-2026).
+  // [código, nome, Tier 3, tratamento OEE] como no ficheiro. P17: nome 'FUBA BIN FULL' definido por Zhax (no ficheiro: FLOUR BIN FILLING).
+  // Colunas V1, V2 e Decisão foram retiradas no ficheiro (só ficam na folha de arquivo; não usar para reporting).
+  const DOWNTIME_SOURCE = '2026-09-30_FMO_Downtime_Codes_v2.xlsx (Folha1)';
+  const OLD_DOWNTIME_SOURCES = ['Downtime Codes v2 (Zhax, 09-10-2026)', 'Downtime_Codes.xlsx (08-10-2026)'];   // listas anteriores (substituídas automaticamente se nunca editadas)
   const DOWNTIME_CODES = [
-    ["P01", "PRODUCTION START-UP", "ARRANQUE DA PRODUÇÃO", "Planned - Production", "Process", "Process"],
-    ["A01", "SCALES", "BALANÇAS", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
-    ["O01", "MANAGEMENT AUTHORIZATION", "AUTORIZAÇÃO DA DIRECÇÃO", "Planned - Other", "Planned", "Other"],
-    ["P02", "PRODUCTION COMPLETION", "FIM DA PRODUÇÃO", "Planned - Production", "Process", "Process"],
-    ["A02", "ASPIRATION FAN", "VENTILADOR DE ASPIRAÇÃO", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
-    ["O02", "FUMIGATION", "FUMIGAÇÃO", "Planned - Fumigation", "Planned", "Other"],
-    ["P03", "PRODUCTION CHANGEOVER", "MUDANÇA DE PRODUÇÃO", "Planned - Production", "Process", "Process"],
-    ["A03", "PNEUMATIC FAN", "VENTILADOR PNEUMÁTICO", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
-    ["O03", "SCHEDULED MAINTENANCE", "MANUTENÇÃO PROGRAMADA", "Planeada - Preventiva", "Planned", "Other"],
-    ["P04", "LOOSE BELTS", "CORREIAS FROUXAS", "Unplanned - Operating Problems", "Process", "Process"],
-    ["A04", "FLOUR CIRCUIT", "CIRCUITO DA FARINHA", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
-    ["O04", "POWER FAILURE", "FALHA DE ENERGIA ELÉCTRICA", "Unplanned - Electrical Breakdown", "Power Failure", "Power Failure"],
-    ["P05", "LEVEL PROBE TRIP", "ACTUAÇÃO DA SONDA DE NÍVEL", "Unplanned - Operating Problems", "Process", "Process"],
-    ["A05", "CLASSIFIERS", "CLASSIFICADORES", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
-    ["O05", "SPECIAL PROJECTS", "PROJECTOS ESPECIAIS", "Planned - Other", "Planned", "Other"],
-    ["P06", "ROLLER CHANGE", "SUBSTITUIÇÃO DOS ROLOS", "Unplanned - Operating Problems", "Process", "Process"],
-    ["A06", "AIRLOCK LINE", "LINHA DE VÁLVULAS ROTATIVAS", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
-    ["O06", "SCHEDULED REPAIRS", "REPARAÇÕES PROGRAMADAS", "Planned - Other", "Planned", "Other"],
-    ["P07", "BRAN BIN FULL", "SILO DE FARELO CHEIO", "Unplanned - Operating Problems", "Process", "Process"],
-    ["A07", "ROLLER MILLS", "MOINHOS DE ROLOS", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
-    ["O07", "PREVENTIVE MAINTENANCE PLAN COMPLIANCE", "CUMPRIMENTO DO PLANO DE MANUTENÇÃO PREVENTIVA", "Planeada - Preventiva", "Planned", "Other"],
-    ["P08", "ENTOLETER FULL", "ENTOLETER CHEIO", "Unplanned - Operating Problems", "Process", "Process"],
-    ["A08", "MILLING ELECTRICAL PANEL", "QUADRO ELÉCTRICO DA MOAGEM", "Unplanned - Electrical Breakdown", "Breakdown", "Breakdown"],
-    ["O08", "SCALE CALIBRATION", "CALIBRAÇÃO DAS BALANÇAS", "Planeada - Produção", "Planned", "Other"],
-    ["P09", "ROLLER MILL SURGE BIN FULL", "TREMONHA DE ALIMENTAÇÃO DO MOINHO DE ROLOS CHEIA", "Unplanned - Operating Problems", "Process", "Process"],
-    ["A09", "COMPRESSOR/AIR NETWORK", "COMPRESSOR/REDE DE AR COMPRIMIDO", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
-    ["O09", "INVENTORY", "INVENTÁRIO", "Planned - Inventory", "Planned", "Other"],
-    ["P10", "PLANSIFTER FULL", "PLANSIFTER CHEIO", "Unplanned - Operating Problems", "Process", "Process"],
-    ["A10", "ENTOLETERS", "ENTOLETERS", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
-    ["O10", "NO PRODUCTION", "SEM PRODUÇÃO", "Planned - No Production Plan", "Planned", "Other"],
-    ["P11", "PNEUMATIC SYSTEM CHOKED", "SISTEMA PNEUMÁTICO ENTUPIDO", "Unplanned - Operating Problems", "Process", "Process"],
-    ["A11", "BRAN BRUSHERS", "ESCOVADORAS DE FARELO", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
-    ["O11", "FEED MILL", "FÁBRICA DE RAÇÕES", "Unplanned - Other", "Feed Mill", "Feed Mill"],
-    ["P12", "OTHER FILLING", "OUTROS ENCHIMENTOS", "Unplanned - Operating Problems", "Process", "Process"],
-    ["A12", "FILTERS", "FILTROS", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
-    ["P13", "FILTER CLEANING", "LIMPEZA DOS FILTROS", "Unplanned - Operating Problems", "Process", "Process"],
-    ["A13", "SAFETY SIFTER", "PENEIRA DE SEGURANÇA", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
-    ["O50", "OTHER STOP", "OUTRA PARAGEM", "Planned - Other", "Planned", "Other"],
-    ["P14", "OTHER CLEANING", "OUTRA LIMPEZA", "Unplanned - Operating Problems", "Process", "Process"],
-    ["A14", "PLANSIFTER", "PLANSIFTER", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
-    ["P15", "BROKEN SIEVES/SCREENS", "PENEIRAS/CRIVOS PARTIDOS", "Unplanned - Operating Problems", "Process", "Process"],
-    ["A15", "BRAN SCREW CONVEYOR", "TRANSPORTADOR HELICOIDAL DE FARELO", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
-    ["P16", "NO GRAIN AVAILABLE FOR MILLING", "SEM CEREAL DISPONÍVEL PARA MOAGEM", "Planned - Raw Material Shortage", "Planned", "Other"],
-    ["A16", "VIBRATORS", "VIBRADORES", "Unplanned - Electrical Breakdown", "Breakdown", "Breakdown"],
-    ["P17", "FLOUR BIN FULL", "SILO DE FARINHA CHEIO", "Unplanned - Excess Finished Product", null, "Other"],
-    ["A17", "BROKEN BELTS", "CORREIAS PARTIDAS", "Unplanned - Operating Problem", "Breakdown", "Breakdown"],
-    ["P18", "INSPECTION/CLEANING PLAN COMPLIANCE", "CUMPRIMENTO DO PLANO DE INSPECÇÃO/LIMPEZA", "Planned - Preventive Maintenance", "Process", "Process"],
-    ["A18", "FLOUR COLLECTOR SCREW CONVEYOR", "TRANSPORTADOR HELICOIDAL DO COLECTOR DE FARINHA", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
-    ["P19", "EXCESS FINISHED PRODUCT", "EXCESSO DE PRODUTO ACABADO", "Unplanned - Excess Finished Product", "Planned", "Other"],
-    ["A19", "BURNT MOTOR/GEAR MOTOR", "MOTOR/MOTORREDUTOR QUEIMADO", "Unplanned - Electrical Breakdown", "Breakdown", "Breakdown"],
-    ["P20", "BREAKER TRIP", "DISPARO DO DISJUNTOR", "Unplanned - Operating Problems", "Process", "Process"],
-    ["A20", "CHAIN CONVEYOR SCRAPER", "RASPADOR DO TRANSPORTADOR DE CORRENTE", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
-    ["P21", "NO APPARENT REASON", "SEM MOTIVO APARENTE", "Planned - Other", "Process", "Process"],
-    ["A21", "CONVEYOR", "TRANSPORTADOR", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
-    ["P22", "BRANFINISHER FILLING", "ENCHIMENTO DO FINALIZADOR DE FARELO", "Unplanned - Operating Problems", "Process", "Process"],
-    ["A22", "BUCKET ELEVATORS", "ELEVADORES DE CANECAS", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
-    ["P23", "DEGERMINATOR CHOKING", "DESGERMINADOR ENTUPIDO", "Unplanned - Operating Problems", "Process", "Process"],
-    ["P24", "EMERGENCY STOP", "PARAGEM DE EMERGÊNCIA", "Unplanned - Operating Problems", "Process", "Process"],
-    ["A50", "OTHER BREAKDOWNS", "OUTRAS AVARIAS", "Unplanned - Mechanical Breakdown", "Breakdown", "Breakdown"],
-    ["P50", "OTHER PROCESS STOP", "OUTRA PARAGEM DE PROCESSO", "Planned - Production", "Process", "Process"]
-  ].map(([code, name, namePt, v1, v2, tier3]) => ({ code, name, namePt, v1, v2, tier3, oee: null, active: true }));
+    ["P01", "PRODUCTION START-UP", "Process", "Counted as loss"],
+    ["A01", "SCALES", "Breakdown", "Counted as loss"],
+    ["O01", "MANAGEMENT AUTHORIZATION", "Other", "Excluded - Planned"],
+    ["P02", "PRODUCTION COMPLETION", "Process", "Counted as loss"],
+    ["A02", "ASPIRATION FAN", "Breakdown", "Counted as loss"],
+    ["O02", "FUMIGATION", "Other", "Excluded - Planned"],
+    ["P03", "PRODUCTION CHANGEOVER", "Process", "Counted as loss"],
+    ["A03", "PNEUMATIC FAN", "Breakdown", "Counted as loss"],
+    ["O03", "SCHEDULED MAINTENANCE", "Other", "Excluded - Planned"],
+    ["P04", "LOOSE BELTS", "Process", "Counted as loss"],
+    ["A04", "FLOUR CIRCUIT", "Breakdown", "Counted as loss"],
+    ["O04", "POWER FAILURE - ENDE GRID", "Power Failure", "Excluded - External"],
+    ["P05", "LEVEL PROBE TRIP", "Process", "Counted as loss"],
+    ["A05", "SASSORES", "Breakdown", "Counted as loss"],
+    ["O05", "SPECIAL PROJECTS", "Other", "Excluded - Planned"],
+    ["P06", "ROLLER CHANGE (SCHEDULED)", "Process", "Excluded - Planned"],
+    ["A06", "AIRLOCK LINE", "Breakdown", "Counted as loss"],
+    ["O06", "SCHEDULED REPAIRS", "Other", "Excluded - Planned"],
+    ["P07", "BRAN BIN FILLING", "Process", "Counted as loss"],
+    ["A07", "MILLS", "Breakdown", "Counted as loss"],
+    ["O07", "PREVENTIVE MAINTENANCE PLAN COMPLIANCE", "Other", "Excluded - Planned"],
+    ["P08", "ENTOLETER FILLING", "Process", "Counted as loss"],
+    ["A08", "MILLING ELECTRICAL PANEL", "Breakdown", "Counted as loss"],
+    ["O08", "SCALE CALIBRATION", "Other", "Excluded - Planned"],
+    ["P09", "MILL FILLING", "Process", "Counted as loss"],
+    ["A09", "COMPRESSOR/AIR NETWORK", "Breakdown", "Counted as loss"],
+    ["O09", "INVENTORY", "Other", "Excluded - Planned"],
+    ["P10", "PLANSIFTER FILLING", "Process", "Counted as loss"],
+    ["A10", "ENTOLETERS", "Breakdown", "Counted as loss"],
+    ["O10", "NO PRODUCTION", "Other", "Excluded - Planned"],
+    ["P11", "PNEUMATIC SYSTEM FILLING", "Process", "Counted as loss"],
+    ["A11", "BRAN BRUSHERS", "Breakdown", "Counted as loss"],
+    ["O11", "FEED MILL", "Feed Mill", "Excluded - External"],
+    ["P12", "OTHER FILLING", "Process", "Counted as loss"],
+    ["A12", "FILTERS", "Breakdown", "Counted as loss"],
+    ["O50", "OTHER STOP", "Other", "Excluded - Planned"],
+    ["P13", "FILTER CLEANING", "Process", "Counted as loss"],
+    ["A13", "SAFETY SIFTER", "Breakdown", "Counted as loss"],
+    ["P14", "OTHER CLEANING", "Process", "Counted as loss"],
+    ["A14", "PLANSIFTER", "Breakdown", "Counted as loss"],
+    ["P15", "BROKEN SIEVES/SCREENS", "Process", "Counted as loss"],
+    ["A15", "BRAN SCREW CONVEYOR", "Breakdown", "Counted as loss"],
+    ["P16", "NO GRAIN AVAILABLE FOR MILLING", "Other", "Excluded - External"],
+    ["A16", "VIBRATORS", "Breakdown", "Counted as loss"],
+    ["P17", "FUBA BIN FULL", "Other", "Excluded - External"],
+    ["A17", "BROKEN BELTS", "Breakdown", "Counted as loss"],
+    ["P18", "INSPECTION/CLEANING PLAN COMPLIANCE", "Process", "Counted as loss"],
+    ["A18", "FLOUR COLLECTOR SCREW CONVEYOR", "Breakdown", "Counted as loss"],
+    ["P19", "EXCESS FINISHED PRODUCT", "Other", "Excluded - External"],
+    ["A19", "BURNT MOTOR/GEAR MOTOR", "Breakdown", "Counted as loss"],
+    ["P20", "THERMAL TRIP", "Process", "Counted as loss"],
+    ["A20", "DRAG CONVEYOR SCRAPER", "Breakdown", "Counted as loss"],
+    ["P21", "NO APPARENT REASON", "Process", "Counted as loss"],
+    ["A21", "CONVEYOR", "Breakdown", "Counted as loss"],
+    ["P22", "FINISHER FILLING", "Process", "Counted as loss"],
+    ["A22", "BUCKET ELEVATORS", "Breakdown", "Counted as loss"],
+    ["P23", "POLISHER FILLING", "Process", "Counted as loss"],
+    ["A50", "OTHER BREAKDOWNS", "Breakdown", "Counted as loss"],
+    ["P24", "EMERGENCY STOP", "Process", "Counted as loss"],
+    ["P25", "ROLL DAMAGE IN PRODUCTION", "Process", "Counted as loss"],
+    ["P50", "OTHER PROCESS STOP", "Process", "Counted as loss"]
+  ].map(([code, name, tier3, oee]) => ({ code, name, namePt: null, tier3, oee, active: true }));
   const TIER3 = ['Process', 'Breakdown', 'Feed Mill', 'Power Failure', 'Other'];
-  const V2_CATS = ['Process', 'Breakdown', 'Planned', 'Power Failure', 'Feed Mill'];
-  // Tratamento OEE — lista PROPOSTA (prática OEE corrente), não vem do ficheiro FMO; vazio = não definido.
-  const OEE_TREAT = ['planned', 'availability', 'performance'];
+  // Tratamento OEE — valores exactos da coluna "OEE Treatment" do ficheiro v2
+  const OEE_TREAT = ['Counted as loss', 'Excluded - Planned', 'Excluded - External'];
+  const OEE_KEY = { 'Counted as loss': 'counted', 'Excluded - Planned': 'exPlanned', 'Excluded - External': 'exExternal' };
+  // Migração de códigos guardados: a lista nova substitui a antiga; mantém nome PT e activação já definidos pelo utilizador.
+  // Devolve também os códigos antigos que deixaram de existir, para aviso.
+  const mergeCodes = old => {
+    const prev = new Map((old || []).map(c => [c.code, c]));
+    const list = DOWNTIME_CODES.map(c => { const o = prev.get(c.code); return o ? Object.assign({}, c, { namePt: o.namePt || null, active: o.active !== false }) : Object.assign({}, c); });
+    const dropped = (old || []).map(c => c.code).filter(k => !DOWNTIME_CODES.some(d => d.code === k));
+    return { list, dropped };
+  };
+  // Unidades em kg (v1.5.0): capacidades de linha e de silos estavam em toneladas. unitsVersion 2 = kg.
+  // Idempotente: uma configuração já em kg não é alterada.
+  function migrateUnits(c) {
+    if (!c || c.unitsVersion === 2) return { cfg: c, changed: false };
+    const out = Object.assign({}, c, { unitsVersion: 2 });
+    if (c.lineTpd && !c.lineKgDay) { out.lineKgDay = {}; Object.keys(c.lineTpd).forEach(k => { out.lineKgDay[k] = c.lineTpd[k] * 1000; }); }
+    delete out.lineTpd;
+    ['bins', 'dirtyBins', 'temperedBins'].forEach(k => {
+      if (Array.isArray(c[k])) out[k] = c[k].map(b => {
+        if (!isNum(b.capT)) return Object.assign({}, b);
+        const nb = Object.assign({}, b, { capKg: b.capT * 1000 }); delete nb.capT; return nb;
+      });
+    });
+    return { cfg: out, changed: true };
+  }
   const defaultCodes = () => DOWNTIME_CODES.map(c => Object.assign({}, c));
   const findCode = (c, list) => (list || DOWNTIME_CODES).find(x => x.code === c) || null;
   const ACT_TYPES = ['housekeeping', 'reprocessing', 'cleaning', 'maintenance', 'other'];
@@ -99,18 +122,19 @@
   const MASTER_SOURCE = 'IDs canónicos indicados por Zhax (09-10-2026)';
   const BIN_SOURCE = 'Ecrã "Flour Silos" (foto 08-10-2026) + IDs e capacidades indicados por Zhax (09-10-2026)';
   const GRAIN_SILOS = Array.from({ length: 21 }, (_, i) => 'S' + String(i + 1).padStart(2, '0'));
-  const mk = rows => rows.map(([id, l, c]) => ({ id, lines: l.split(''), capT: c }));
-  const DEFAULT_DIRTY_BINS = mk([['B01', 'CD', 130], ['B02', 'CD', 130], ['B03', 'CD', 130], ['B04', 'CD', 130]]);
-  const DEFAULT_TEMPERED_BINS = mk([['B05', 'C', 95], ['B06', 'C', 95], ['B07', 'D', 55], ['B08', 'D', 55]]);
+  const mk = rows => rows.map(([id, l, c]) => ({ id, lines: l.split(''), capKg: c }));   // capacidade em kg
+  const DEFAULT_DIRTY_BINS = mk([['B01', 'CD', 130000], ['B02', 'CD', 130000], ['B03', 'CD', 130000], ['B04', 'CD', 130000]]);
+  const DEFAULT_TEMPERED_BINS = mk([['B05', 'C', 95000], ['B06', 'C', 95000], ['B07', 'D', 55000], ['B08', 'D', 55000]]);
   const DEFAULT_BINS = mk([
-    ['B34', 'CD', 60], ['B35', 'CD', 60], ['B40', 'C', 188], ['B43', 'D', 188],
-    ['B44', 'C', 188], ['B45', 'C', 188], ['B46', 'C', 188], ['B47', 'C', 145]
+    ['B34', 'CD', 60000], ['B35', 'CD', 60000], ['B40', 'C', 188000], ['B43', 'D', 188000],
+    ['B44', 'C', 188000], ['B45', 'C', 188000], ['B46', 'C', 188000], ['B47', 'C', 145000]
   ]);
-  const copyBins = l => l.map(b => ({ id: b.id, lines: b.lines.slice(), capT: b.capT }));
+  const copyBins = l => l.map(b => ({ id: b.id, lines: b.lines.slice(), capKg: b.capKg }));
 
   function defaultProdConfig() {
     return {
-      lineTpd: { C: 500, D: 300 },     // capacidade (t/dia) — dado do utilizador
+      unitsVersion: 2,                 // capacidades em kg (ver migrateUnits)
+      lineKgDay: { C: 500000, D: 300000 },     // capacidade (kg/dia) — dado do utilizador (500 t e 300 t)
       dampenerMaxLh: 2500,             // molhador, máximo L/h — valor único até v1.3.0 (recurso se faltar o valor da linha)
       dampenerMaxLhByLine: { C: 2500, D: 1500 },   // molhador por linha, L/h — Zhax 09-10-2026 (linha D: 1 500 L/h)
       extraction: {},                  // obsoleto desde v1.4.0 (extracção por ordem); mantido para compatibilidade
@@ -168,15 +192,22 @@
     if (m1 <= m0) return 0;
     return kg * (m1 - m0) / (100 - m1);
   }
-  // Caudal de água (L/h) para um caudal de grão (t/h)
-  function waterRate(tph, m0, m1) {
-    const w = waterFor(isNum(tph) ? tph * 1000 : NaN, m0, m1);
+  // Caudal de água (L/h) para um caudal de grão (kg/h)
+  // Caudal de água (L/h) para um caudal de grão (kg/h)
+  function waterRate(kgh, m0, m1) {
+    const w = waterFor(isNum(kgh) ? kgh : NaN, m0, m1);
     return w === null ? null : w;
   }
-  const defaultFeedTph = (cfgP, lineId) => {
-    const tpd = cfgP.lineTpd && cfgP.lineTpd[lineId];
-    return isNum(tpd) && tpd > 0 ? tpd / 24 : null;
+  // Caudal por defeito da linha (kg/h) = capacidade diária (kg/dia) / 24
+  const defaultFeedKgh = (cfgP, lineId) => {
+    const kgd = cfgP.lineKgDay && cfgP.lineKgDay[lineId];
+    return isNum(kgd) && kgd > 0 ? kgd / 24 : null;
   };
+  function feedKghOf(job) {
+    if (isNum(num(job.feedKgh))) return num(job.feedKgh);
+    if (isNum(num(job.feedTph))) return num(job.feedTph) * 1000;
+    return null;
+  }
 
   // ---------- silos de grão (snapshot importado da app de Silos) ----------
   function siloKg(siloId, events) {
@@ -304,8 +335,8 @@
     if (bin) {
       const st = dirtyBinState(bin.id, ctx.moves, ctx.jobs);
       calc.binKg = st.kg;
-      if (isNum(bin.capT)) {
-        calc.freeKg = Math.max(0, bin.capT * 1000 - Math.max(0, st.kg));
+      if (isNum(bin.capKg)) {
+        calc.freeKg = Math.max(0, bin.capKg - Math.max(0, st.kg));
         if (isNum(kg) && kg > calc.freeKg) E.push({ code: 'dirty_bin_full', bin: bin.id, free: calc.freeKg });
       }
       // mistura de cores/graus no mesmo silo de moagem: aviso (a receita é verificada na ordem)
@@ -359,7 +390,7 @@
 
   // ---------- validação da ordem de produção ----------
   // job: {productId, lineId, grainKg, mode:'seq'|'blend', sources:[silos de milho sujo em ordem], blend:{bin:{pct,m0,impurities}},
-  //       tempered:[silos de milho temperado], bins:[silos de produto], m0, impurities, m1, feedTph,
+  //       tempered:[silos de milho temperado], bins:[silos de produto], m0, impurities, m1, feedKgh,
   //       recipe:{colours:[],grades:[]} e targetExtraction — ambos introduzidos na ordem (v1.4.0)}
   //  - 'seq'  : esvazia o 1.º silo de moagem, depois o seguinte; humidade e impurezas do grão (uma leitura).
   //  - 'blend': mistura em % por silo de moagem (soma 100); humidade/impurezas por silo → média ponderada.
@@ -381,9 +412,9 @@
     else if (isNaN(kg) || kg <= 0) E.push({ code: 'bad', field: 'grainKg' });
     const m1 = num(job.m1);
     if (m1 === null) E.push({ code: 'need', field: 'm1' }); else if (isNaN(m1) || m1 <= 0 || m1 >= 100) E.push({ code: 'bad', field: 'm1' });
-    let tph = num(job.feedTph);
-    if (tph === null) tph = job.lineId ? defaultFeedTph(cfgP, job.lineId) : null;
-    if (tph === null || isNaN(tph) || tph <= 0) E.push({ code: 'bad', field: 'feedTph' });
+    let kgh = feedKghOf(job);
+    if (kgh === null) kgh = job.lineId ? defaultFeedKgh(cfgP, job.lineId) : null;
+    if (kgh === null || isNaN(kgh) || kgh <= 0) E.push({ code: 'bad', field: 'feedKgh' });
 
     // linha ocupada
     if (job.lineId && (ctx.jobs || []).some(j => j.status === 'running' && j.lineId === job.lineId && j.uid !== job.uid))
@@ -491,9 +522,9 @@
         const b = cfgP.bins.find(x => x.id === id);
         const r = binCheck(b, o.productId, job.lineId, ctx.binEvents);
         if (!r.ok) { E.push(Object.assign({ code: r.why, bin: id, current: r.current }, tag(o))); return; }
-        if (!isNum(b.capT)) missingCap = true;
+        if (!isNum(b.capKg)) missingCap = true;
         else if (r.current) unknownLevel = true;            // já tem o mesmo produto: nível desconhecido
-        else capKnown += b.capT * 1000;
+        else capKnown += b.capKg;
       });
       capTotal += capKnown;
       if (o.bins.length && isNum(exp) && !missingCap) {
@@ -513,16 +544,16 @@
       calc.m0 = m0; calc.impurities = imp;
       calc.waterL = r0(waterFor(kg, m0, m1));
       if (m1 <= m0) W.push({ code: 'no_water' });
-      if (isNum(tph) && tph > 0) {
-        calc.feedTph = Math.round(tph * 100) / 100;
-        calc.waterLh = r0(waterRate(tph, m0, m1));
-        calc.hours = r1(kg / 1000 / tph);
+      if (isNum(kgh) && kgh > 0) {
+        calc.feedKgh = Math.round(kgh * 100) / 100;
+        calc.waterLh = r0(waterRate(kgh, m0, m1));
+        calc.hours = r1(kg / kgh);
         const dmax = dampenerMax(cfgP, job.lineId);
         calc.dampenerMaxLh = dmax;
         if (isNum(dmax) && calc.waterLh > dmax) E.push({ code: 'dampener_max', need: calc.waterLh, max: dmax });
       }
     }
-    return { errors: E, warnings: W, calc, values: { grainKg: kg, m0, m1, impurities: imp, feedTph: tph } };
+    return { errors: E, warnings: W, calc, values: { grainKg: kg, m0, m1, impurities: imp, feedKgh: kgh } };
   }
 
   // Máximo do molhador da linha (v1.4.0); sem valor da linha → valor único antigo
@@ -537,7 +568,7 @@
   function readingCalc(job, m0, cfgP) {
     const v = num(m0);
     if (v === null || isNaN(v) || v < 0 || v >= 100) return { error: 'bad' };
-    const lh = r0(waterRate(job.feedTph, v, job.m1));
+    const lh = r0(waterRate(feedKghOf(job), v, job.m1));
     const max = cfgP ? dampenerMax(cfgP, job.lineId) : job.dampenerMaxLh;
     return { m0: v, waterLh: lh, max, over: isNum(max) && lh > max, noWater: v >= job.m1 };
   }
@@ -549,7 +580,7 @@
   }
 
   // ---------- configuração de produção: validação ----------
-  // Texto de silos de produto: "34:C,D:60; 45:C:188" (silo:linhas:capacidade t, capacidade opcional)
+  // Texto de silos de produto: "34:C,D:60000; 45:C:188000" (silo:linhas:capacidade kg, capacidade opcional)
   function parseBins(text, lineIds) {
     const out = [], errors = [];
     String(text || '').split(/[;\n]+/).map(s => s.trim()).filter(Boolean).forEach(part => {
@@ -558,13 +589,13 @@
       const lines = [...new Set(m[2].toUpperCase().split(/[,\s]+/).filter(Boolean).join('').split(''))];
       if (!lines.length || lines.some(l => lineIds.indexOf(l) < 0)) { errors.push(part); return; }
       if (out.some(b => b.id === m[1].toUpperCase())) { errors.push(part); return; }
-      let capT = null;
-      if (m[3] !== undefined) { capT = num(m[3]); if (capT === null || isNaN(capT) || capT <= 0) { errors.push(part); return; } }
-      out.push({ id: m[1].toUpperCase(), lines: lines.sort(), capT });
+      let capKg = null;
+      if (m[3] !== undefined) { capKg = num(m[3]); if (capKg === null || isNaN(capKg) || capKg <= 0) { errors.push(part); return; } }
+      out.push({ id: m[1].toUpperCase(), lines: lines.sort(), capKg });
     });
     return { bins: out, errors };
   }
-  const binsText = bins => bins.map(b => b.id + ':' + b.lines.join(',') + (isNum(b.capT) ? ':' + b.capT : '')).join('; ');
+  const binsText = bins => bins.map(b => b.id + ':' + b.lines.join(',') + (isNum(b.capKg) ? ':' + b.capKg : '')).join('; ');
 
   // Lista de silos de grão: "S01–S21" ou "S01, S02, …"
   function parseSiloList(text) {
@@ -584,7 +615,7 @@
 
   function validateProdConfig(c) {
     const e = [];
-    Object.keys(c.lineTpd || {}).forEach(k => { const v = c.lineTpd[k]; if (!isNum(v) || v <= 0) e.push('lineTpd:' + k); });
+    Object.keys(c.lineKgDay || {}).forEach(k => { const v = c.lineKgDay[k]; if (!isNum(v) || v <= 0) e.push('lineKgDay:' + k); });
     if (!isNum(c.dampenerMaxLh) || c.dampenerMaxLh <= 0) e.push('dampenerMaxLh');
     Object.keys(c.dampenerMaxLhByLine || {}).forEach(k => { const v = c.dampenerMaxLhByLine[k]; if (!isNum(v) || v <= 0) e.push('dampenerLine:' + k); });
     Object.keys(c.extraction || {}).forEach(k => { const v = c.extraction[k]; if (v !== null && (!isNum(v) || v <= 0 || v > 100)) e.push('extraction:' + k); });
@@ -607,7 +638,7 @@
     const d = [];
     const cmp = (field, x, y) => { const sx = JSON.stringify(x === undefined ? null : x), sy = JSON.stringify(y === undefined ? null : y); if (sx !== sy) d.push({ field, old: sx, new: sy }); };
     const keys = (o1, o2) => [...new Set(Object.keys(o1 || {}).concat(Object.keys(o2 || {})))];
-    keys(a.lineTpd, b.lineTpd).forEach(k => cmp('lineTpd.' + k, (a.lineTpd || {})[k], (b.lineTpd || {})[k]));
+    keys(a.lineKgDay, b.lineKgDay).forEach(k => cmp('lineKgDay.' + k, (a.lineKgDay || {})[k], (b.lineKgDay || {})[k]));
     cmp('dampenerMaxLh', a.dampenerMaxLh, b.dampenerMaxLh);
     keys(a.dampenerMaxLhByLine, b.dampenerMaxLhByLine).forEach(k => cmp('dampenerMaxLh.' + k, (a.dampenerMaxLhByLine || {})[k], (b.dampenerMaxLhByLine || {})[k]));
     keys(a.extraction, b.extraction).forEach(k => cmp('extraction.' + k, (a.extraction || {})[k], (b.extraction || {})[k]));
@@ -620,7 +651,7 @@
     cmp('temperedBins', binsText(a.temperedBins || []), binsText(b.temperedBins || []));
     const ca = {}, cb = {};
     (a.downtimeCodes || []).forEach(c => { ca[c.code] = c; }); (b.downtimeCodes || []).forEach(c => { cb[c.code] = c; });
-    keys(ca, cb).forEach(k => ['name', 'namePt', 'v2', 'tier3', 'oee', 'active'].forEach(f => cmp('code.' + k + '.' + f, (ca[k] || {})[f], (cb[k] || {})[f])));
+    keys(ca, cb).forEach(k => ['name', 'namePt', 'tier3', 'oee', 'active'].forEach(f => cmp('code.' + k + '.' + f, (ca[k] || {})[f], (cb[k] || {})[f])));
     return d;
   }
 
@@ -632,7 +663,6 @@
       else if (seen.has(c.code)) e.push('dup:' + c.code);
       seen.add(c.code);
       if (!String(c.name || '').trim()) e.push('name:' + c.code);
-      if (c.v2 && V2_CATS.indexOf(c.v2) < 0) e.push('v2:' + c.code);
       if (c.tier3 && TIER3.indexOf(c.tier3) < 0) e.push('tier3:' + c.code);
       if (c.oee && OEE_TREAT.indexOf(c.oee) < 0) e.push('oee:' + c.code);
     });
@@ -675,15 +705,15 @@
     const now = isNum(d.now) ? d.now : Date.now();
     const jobs = (d.jobs || []).filter(j => j.startedAt < range[1] && (j.closedAt || now) >= range[0]).sort((a, b) => a.startedAt - b.startedAt);
     const downtime = issues.reduce((s, i) => s + (isNum(i.downtimeMin) ? i.downtimeMin : 0), 0);
-    // Por categoria V2 (referência) e tratamento OEE, a partir do código gravado no registo (cópia no momento)
-    const byV2 = {}, byOee = {};
+    // Por categoria Tier 3 e tratamento OEE, a partir do código gravado no registo (cópia no momento)
+    const byTier3 = {}, byOee = {};
     issues.forEach(i => {
       if (!(isNum(i.downtimeMin) && i.downtimeMin > 0)) return;
       const c = i.codeInfo || findCode(i.code, d.codes) || {};
-      const k = c.v2 || '', o = c.oee || '';
-      byV2[k] = (byV2[k] || 0) + i.downtimeMin; byOee[o] = (byOee[o] || 0) + i.downtimeMin;
+      const k = c.tier3 || '', o = c.oee || '';
+      byTier3[k] = (byTier3[k] || 0) + i.downtimeMin; byOee[o] = (byOee[o] || 0) + i.downtimeMin;
     });
-    return { issues, acts, jobs, downtimeMin: downtime, byV2, byOee, openIssues: issues.filter(i => i.status !== 'closed').length };
+    return { issues, acts, jobs, downtimeMin: downtime, byTier3, byOee, openIssues: issues.filter(i => i.status !== 'closed').length };
   }
 
   // Chefe de turno da turma (vazio se não definido)
@@ -707,8 +737,8 @@
     return okJobs && okBin && okLog;
   }
 
-  const api = { VERSION, COLOURS, SILO_GRADES, GRAIN_SILOS, DEFAULT_DIRTY_BINS, DEFAULT_TEMPERED_BINS, MASTER_SOURCE, dirtyBinState, validateTransfer, crewLeader, leaderNames, transferredAfter, parseSiloList, nonCanonical, DOWNTIME_CODES, DOWNTIME_SOURCE, TIER3, V2_CATS, OEE_TREAT, defaultCodes, findCode, validateCodes, ACT_TYPES, JOB_STATUS, DEFAULT_BINS, BIN_SOURCE,
-    defaultProdConfig, num, waterFor, waterRate, defaultFeedTph, siloKg, snapshotFromSilosBackup,
+  const api = { VERSION, COLOURS, SILO_GRADES, GRAIN_SILOS, DEFAULT_DIRTY_BINS, DEFAULT_TEMPERED_BINS, MASTER_SOURCE, dirtyBinState, validateTransfer, crewLeader, leaderNames, transferredAfter, parseSiloList, nonCanonical, DOWNTIME_CODES, DOWNTIME_SOURCE, TIER3, OEE_TREAT, OEE_KEY, mergeCodes, migrateUnits, defaultCodes, findCode, validateCodes, ACT_TYPES, JOB_STATUS, DEFAULT_BINS, BIN_SOURCE,
+    defaultProdConfig, num, waterFor, waterRate, defaultFeedKgh, feedKghOf, siloKg, snapshotFromSilosBackup,
     availableKg, allocate, jobOutputs, jobProducts, recipeSet, OLD_DOWNTIME_SOURCES, dampenerMax, recipeFit, binState, binCheck, validateJob, readingCalc, needsShiftReading, parseBins, binsText,
     validateProdConfig, prodConfigDiff, effectiveLog, validateIssue, validateActivity, shiftSummary, uid, validProdBackup };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

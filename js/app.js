@@ -84,6 +84,7 @@
     S.cfg = (await DB.getConfig('cfg')) || L.defaultConfig();
     S.lang = (await DB.getConfig('lang')) || 'pt';
     S.crew = (await DB.getConfig('crew')) || null;
+    DB.setContext({ crew: S.crew });
     S.operator = (await DB.getConfig('operator')) || '';
     S.lineState = (await DB.getConfig('lineState')) || {};
     S.pinLock = (await DB.getConfig('pinLock')) || { fails: 0, until: 0 };
@@ -692,7 +693,7 @@
   document.addEventListener('change', async e => {
     const el = e.target;
     if (PU.onChange(el)) return;
-    if (el.id === 'crewSel') { S.crew = el.value || null; await DB.setConfig('crew', S.crew); render(); return; }
+    if (el.id === 'crewSel') { S.crew = el.value || null; await DB.setConfig('crew', S.crew); DB.setContext({ crew: S.crew }); render(); return; }
     if (el.dataset.lineprod) return changeLineProduct(el.dataset.lineprod, el.value, el);
     if (el.id === 'f_line') { S.form.lineId = el.value; const st = S.lineState[el.value]; if (st && st.productId) S.form.productId = st.productId; render(); return; }
     if (el.id === 'f_prod') { S.form.productId = el.value; render(); return; }

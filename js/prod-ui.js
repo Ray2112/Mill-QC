@@ -16,14 +16,13 @@ window.ProdUI = function (C) {
   const codes = () => S.cfgP.downtimeCodes;
   const cName = d => (S.lang === 'pt' && d.namePt) ? d.namePt : d.name;
   const codeLabel = (c, info) => { const d = info || P.findCode(c, codes()); return d ? d.code + ' ' + cName(d) : (c || ''); };
-  const v2Label = v => v || t('noV2');
-  const oeeLabel = o => o ? t('oee_' + o) : t('oeeNotSet');
+  const tierLabel = v => v || t('noTier3');
+  const oeeLabel = o => o && P.OEE_KEY[o] ? t('oee_' + P.OEE_KEY[o]) : t('oeeNotSet');
   const GROUPS = [['P', 'cg_P'], ['A', 'cg_A'], ['O', 'cg_O']];
 
   // ---------- dados ----------
   async function load() {
     S.cfgP = (await DB.getConfig('cfgP')) || P.defaultProdConfig();
-    if (!Array.isArray(S.cfgP.downtimeCodes)) { S.cfgP.downtimeCodes = P.defaultCodes(); S.cfgP.codesSource = P.DOWNTIME_SOURCE; }   // configuração anterior à v1.2
     // configuração anterior à v1.3: acrescenta os dados mestre em falta (não altera listas já existentes)
     const d = P.defaultProdConfig();
     ['grainSilos', 'dirtyBins', 'temperedBins', 'masterSource', 'leaders', 'dampenerMaxLhByLine'].forEach(k => { if (S.cfgP[k] === undefined) S.cfgP[k] = d[k]; });
@@ -32,15 +31,16 @@ window.ProdUI = function (C) {
       S.deviceId = 'd' + Array.from(crypto.getRandomValues(new Uint8Array(4))).map(x => x.toString(16).padStart(2, '0')).join('');
       await DB.setConfig('deviceId', S.deviceId);
     }
-    // v1.4.0: lista por defeito antiga e nunca editada neste telemóvel → passa para os códigos v2 (registado em prodChanges)
-    if (P.OLD_DOWNTIME_SOURCES.indexOf(S.cfgP.codesSource) >= 0) {
-      const n = Object.assign({}, S.cfgP, { downtimeCodes: P.defaultCodes(), codesSource: P.DOWNTIME_SOURCE });
-      const diff = P.prodConfigDiff(S.cfgP, n), tms = now();
-      try {
-        if (diff.length) await DB.batch(diff.map(x => ({ store: 'prodChanges', op: 'add', obj: Object.assign(base(tms), { t: tms, by: 'app ' + P.VERSION, reason: t('codesAutoUpgrade') }, x) })));
-        await DB.setConfig('cfgP', n); S.cfgP = n;
-      } catch (e) { /* mantém a lista antiga; tenta de novo na próxima abertura */ }
+    // códigos: lista do ficheiro v2 (v1.5.0); nomes PT e activação já definidos mantêm-se; códigos que deixaram de existir ficam em codesDropped
+    let migrated = false;
+    if (!Array.isArray(S.cfgP.downtimeCodes) || S.cfgP.codesSource !== P.DOWNTIME_SOURCE) {
+      const m = P.mergeCodes(S.cfgP.downtimeCodes);
+      S.cfgP.downtimeCodes = m.list; S.cfgP.codesSource = P.DOWNTIME_SOURCE; S.cfgP.codesDropped = m.dropped; migrated = true;
     }
+    // unidades: toneladas → kg (uma vez; idempotente)
+    const u = P.migrateUnits(S.cfgP);
+    if (u.changed) { S.cfgP = u.cfg; migrated = true; }
+    if (migrated) { try { await DB.setConfig('cfgP', S.cfgP); } catch (e) { /* tenta de novo na próxima abertura */ } }
     S.ctx = Object.assign({ operatorId: '', testMode: false }, (await DB.getConfig('ctx')) || {});
     applyCtx();
     await reload();
@@ -113,16 +113,16 @@ window.ProdUI = function (C) {
     return snapCard() +
       (S.trForm ? transferFormView() : `<section class="card"><button class="btn primary big" data-pact="newtransfer">＋ ${esc(t('newTransfer'))}</button></section>`) +
       `<section class="card"><h3>${esc(t('dirtyBins'))}</h3>${(S.cfgP.dirtyBins || []).map(dirtyCard).join('')}</section>
-      <section class="card"><h3>${esc(t('temperedBins'))}</h3>${(S.cfgP.temperedBins || []).map(b => `<div class="kv"><span><b>${esc(b.id)}</b> · ${esc(t('fedBy'))} ${esc(b.lines.join('/'))}</span><b>${isNum(b.capT) ? fmtKg(b.capT) + ' t' : esc(t('capNotSet'))}</b></div>`).join('')}
+      <section class="card"><h3>${esc(t('temperedBins'))}</h3>${(S.cfgP.temperedBins || []).map(b => `<div class="kv"><span><b>${esc(b.id)}</b> · ${esc(t('fedBy'))} ${esc(b.lines.join('/'))}</span><b>${isNum(b.capKg) ? fmtKg(b.capKg) + ' kg' : esc(t('capNotSet'))}</b></div>`).join('')}
         <p class="sub">${esc(t('temperedNote'))}</p></section>
       <section class="card"><h3>${esc(t('recentMoves'))}</h3>${recent.map(m => `<div class="rowitem"><b>${esc(C.fmtDT(m.t))}</b> · ${esc(m.binId)} · ${m.type === 'EMPTY' ? esc(t('binEmptied', { kg: fmtKg(m.bookKg) })) : esc((m.parts || []).map(p => p.silo + ' ' + fmtKg(p.kg) + ' kg').join(' → '))}<br><small>${esc(t('crew'))} ${esc(m.crew || '—')} · ${esc(m.by || '')}</small></div>`).join('') || '<p class="sub">—</p>'}</section>
       <section class="card"><p class="sub">${esc(t('masterNote', { s: S.cfgP.masterSource || '' }))}</p></section>`;
   }
   function dirtyCard(b) {
     const st = dirtyState(b.id);
-    const pct = isNum(b.capT) && b.capT > 0 ? Math.max(0, Math.min(100, Math.round(st.kg / (b.capT * 10)))) : null;
+    const pct = isNum(b.capKg) && b.capKg > 0 ? Math.max(0, Math.min(100, Math.round(st.kg / (b.capKg / 100)))) : null;
     const mine = S.emptyBin === b.id;
-    return `<div class="rowitem"><div class="row between"><span><b>${esc(b.id)}</b> <small>${esc(t('fedBy'))} ${esc(b.lines.join('/'))}${isNum(b.capT) ? ' · ' + fmtKg(b.capT) + ' t' : ''}</small></span>
+    return `<div class="rowitem"><div class="row between"><span><b>${esc(b.id)}</b> <small>${esc(t('fedBy'))} ${esc(b.lines.join('/'))}${isNum(b.capKg) ? ' · ' + fmtKg(b.capKg) + ' kg' : ''}</small></span>
         <span class="chip ${st.kg > 0 ? 'd-warn' : 'd-accept'}">${st.kg > 0 ? fmtKg(st.kg) + ' kg' + (pct !== null ? ' · ' + pct + ' %' : '') : esc(t('binEmpty'))}</span></div>
       ${st.kg < 0 ? `<div class="banner b-reject"><small>${esc(t('negativeBin'))}</small></div>` : ''}
       ${st.comps.length ? `<small>${esc(t('inputsSince'))}: ${esc(compText(st.comps))}</small>` : ''}
@@ -146,7 +146,7 @@ window.ProdUI = function (C) {
         <small>${esc(s.cereal)} ${esc(s.colour)} · ${esc(gradeName(s.grade))} · ${fmtKg(P.availableKg(sn, S.moves, s.id))} kg</small>${chip}</button>`;
     }).join('') : `<p class="sub">${esc(t('snapNone'))}</p>`;
     return `<section class="card"><h2>${esc(t('newTransfer'))}</h2>
-      <div class="grid2"><label class="fld req">${esc(t('dirtyBin'))}<select data-trf="binId"><option value="">—</option>${(S.cfgP.dirtyBins || []).map(b => { const st = dirtyState(b.id); return `<option value="${esc(b.id)}" ${f.binId === b.id ? 'selected' : ''}>${esc(b.id)} · ${fmtKg(st.kg)} / ${isNum(b.capT) ? fmtKg(b.capT * 1000) : '?'} kg</option>`; }).join('')}</select></label>
+      <div class="grid2"><label class="fld req">${esc(t('dirtyBin'))}<select data-trf="binId"><option value="">—</option>${(S.cfgP.dirtyBins || []).map(b => { const st = dirtyState(b.id); return `<option value="${esc(b.id)}" ${f.binId === b.id ? 'selected' : ''}>${esc(b.id)} · ${fmtKg(st.kg)} / ${isNum(b.capKg) ? fmtKg(b.capKg * 1000) : '?'} kg</option>`; }).join('')}</select></label>
         <label class="fld req">${esc(t('qtyKg'))}<input inputmode="decimal" data-tri="kg" value="${esc(f.kg)}"></label></div>
       <p class="sub">${esc(t('silosOrder'))}</p><div class="picks">${siloRows}</div>
       <label class="chk"><input type="checkbox" data-trf="silosConfirmed" ${f.silosConfirmed ? 'checked' : ''}> ${esc(t('confirmSilos'))}</label>
@@ -284,7 +284,7 @@ window.ProdUI = function (C) {
   // ----- formulário da ordem -----
   function newJobForm() {
     const line = S.cfg.lines.find(l => !runningJob(l.id));
-    S.jobForm = { lineId: line ? line.id : '', grainKg: '', mode: 'seq', sources: [], blend: {}, tempered: [], m0: '', impurities: '', m1: '', feedTph: '',
+    S.jobForm = { lineId: line ? line.id : '', grainKg: '', mode: 'seq', sources: [], blend: {}, tempered: [], m0: '', impurities: '', m1: '', feedKgh: '',
       outputs: [newOutput()], recipe: { colours: [], grades: [] }, leader: defLeader() };
   }
   const prodNames = j => P.jobProducts(j).map(C.prodName).join(' + ') || '—';
@@ -297,7 +297,7 @@ window.ProdUI = function (C) {
       const st = P.binState(b.id, S.binEvents);
       const on = o.bins.indexOf(b.id) >= 0, other = taken[b.id];
       const clash = st.productId && o.productId && st.productId !== o.productId;
-      return `<button class="pick ${on ? 'on' : ''}${other ? ' dim' : ''}" data-jobin="${i}|${esc(b.id)}"><b>${esc(b.id)}</b><small>${esc(t('fedBy'))} ${esc(b.lines.join('/'))}${isNum(b.capT) ? ' · ' + fmtKg(b.capT) + ' t' : ''}</small>
+      return `<button class="pick ${on ? 'on' : ''}${other ? ' dim' : ''}" data-jobin="${i}|${esc(b.id)}"><b>${esc(b.id)}</b><small>${esc(t('fedBy'))} ${esc(b.lines.join('/'))}${isNum(b.capKg) ? ' · ' + fmtKg(b.capKg) + ' kg' : ''}</small>
         ${other ? `<span class="chip d-record">${esc(t('binTakenBy', { p: other === '?' ? t('productN', { n: f.outputs.findIndex(x => x.bins.indexOf(b.id) >= 0) + 1 }) : C.prodName(other) }))}</span>`
           : `<span class="chip ${clash ? 'd-reject' : st.productId ? 'd-warn' : 'd-accept'}">${esc(st.productId ? C.prodName(st.productId) : t('binEmpty'))}</span>`}</button>`;
     }).join('');
@@ -313,7 +313,7 @@ window.ProdUI = function (C) {
   function jobFormView() {
     const f = S.jobForm;
     const recipe = f.recipe;
-    const tphDef = f.lineId ? P.defaultFeedTph(S.cfgP, f.lineId) : null;
+    const tphDef = f.lineId ? P.defaultFeedKgh(S.cfgP, f.lineId) : null;
     const srcRows = (S.cfgP.dirtyBins || []).filter(b => !f.lineId || b.lines.indexOf(f.lineId) >= 0).map(b => {
       const idx = f.sources.indexOf(b.id);
       const st = dirtyState(b.id);
@@ -326,13 +326,13 @@ window.ProdUI = function (C) {
         <small>${st.kg > 0 ? fmtKg(st.kg) + ' kg · ' + esc(compText(st.comps)) : esc(t('binEmpty'))}</small>${chip}</button>`;
     }).join('');
     const tempRows = (S.cfgP.temperedBins || []).filter(b => !f.lineId || b.lines.indexOf(f.lineId) >= 0).map(b =>
-      `<button class="pick ${f.tempered.indexOf(b.id) >= 0 ? 'on' : ''}" data-jtemp="${esc(b.id)}"><b>${esc(b.id)}</b><small>${esc(t('fedBy'))} ${esc(b.lines.join('/'))}${isNum(b.capT) ? ' · ' + fmtKg(b.capT) + ' t' : ''}</small></button>`).join('');
+      `<button class="pick ${f.tempered.indexOf(b.id) >= 0 ? 'on' : ''}" data-jtemp="${esc(b.id)}"><b>${esc(b.id)}</b><small>${esc(t('fedBy'))} ${esc(b.lines.join('/'))}${isNum(b.capKg) ? ' · ' + fmtKg(b.capKg) + ' kg' : ''}</small></button>`).join('');
     const lineBins = S.cfgP.bins.filter(b => !f.lineId || b.lines.indexOf(f.lineId) >= 0);
     return `<section class="card"><h2>${esc(t('newJob'))}</h2>
       <div class="grid2">
         <label class="fld req">${esc(t('line'))}<select data-jf="lineId"><option value="">—</option>${S.cfg.lines.map(l => `<option value="${esc(l.id)}" ${f.lineId === l.id ? 'selected' : ''}>${esc(l.name)}${runningJob(l.id) ? ' (' + esc(t('busy')) + ')' : ''}</option>`).join('')}</select></label>
         <label class="fld req">${esc(t('grainToMill'))} (kg)<input inputmode="decimal" data-jfi="grainKg" value="${esc(f.grainKg)}"></label>
-        <label class="fld">${esc(t('feedRate'))} (t/h)<input inputmode="decimal" data-jfi="feedTph" value="${esc(f.feedTph)}" placeholder="${esc(tphDef ? C.fmtNum(Math.round(tphDef * 100) / 100) : '')}"></label>
+        <label class="fld">${esc(t('feedRate'))} (kg/h)<input inputmode="decimal" data-jfi="feedKgh" value="${esc(f.feedKgh)}" placeholder="${esc(tphDef ? C.fmtNum(Math.round(tphDef * 100) / 100) : '')}"></label>
       </div>
       <p class="sub">${esc(t('feedRateHint'))}</p>
     </section>
@@ -395,7 +395,7 @@ window.ProdUI = function (C) {
     if (S.jobForm.mode === 'blend' && isNum(c.m0)) rows.push(`<div class="kv"><span>${esc(t('blendM0'))}</span><b>${esc(C.fmtNum(c.m0))} % · ${esc(t('impurities'))} ${esc(C.fmtNum(c.impurities))} %</b></div>`);
     if (isNum(c.waterL)) rows.push(`<div class="kv"><span>${esc(t('waterTotal'))}</span><b>${fmtKg(c.waterL)} L</b></div>`);
     if (isNum(c.waterLh)) rows.push(`<div class="kv"><span>${esc(t('waterRate'))}</span><b class="${isNum(c.dampenerMaxLh) && c.waterLh > c.dampenerMaxLh ? 'txt-reject' : ''}">${fmtKg(c.waterLh)} L/h <small>(${esc(t('max'))} ${fmtKg(c.dampenerMaxLh)})</small></b></div>`);
-    if (isNum(c.hours)) rows.push(`<div class="kv"><span>${esc(t('duration'))}</span><b>${esc(C.fmtNum(c.hours))} h @ ${esc(C.fmtNum(c.feedTph))} t/h</b></div>`);
+    if (isNum(c.hours)) rows.push(`<div class="kv"><span>${esc(t('duration'))}</span><b>${esc(C.fmtNum(c.hours))} h @ ${esc(C.fmtNum(c.feedKgh))} kg/h</b></div>`);
     (c.outputs || []).forEach(o => { if (o.productId && isNum(o.expectedKg)) rows.push(`<div class="kv"><span>${esc(C.prodName(o.productId))}</span><b>${fmtKg(o.expectedKg)} kg (${esc(C.fmtNum(o.extraction))} %) → ${esc(o.bins.join(', ') || '—')}</b></div>`); });
     if (isNum(c.expectedKg) && (c.outputs || []).length > 1) rows.push(`<div class="kv"><span>${esc(t('expectedProduct'))} · ${esc(t('total'))}</span><b>${fmtKg(c.expectedKg)} kg (${esc(C.fmtNum(c.extraction))} %)</b></div>`);
     if (c.alloc && c.alloc.length) rows.push(`<div class="kv"><span>${esc(t('fromBins'))}</span><b>${allocText(c.alloc)}</b></div>`);
@@ -420,7 +420,7 @@ window.ProdUI = function (C) {
       tempered: f.tempered.slice(), bins: [].concat(...outs.map(o => o.bins)), outputs: outs,
       blendInputs: f.mode === 'blend' ? JSON.parse(JSON.stringify(f.blend)) : null,
       offRecipe: r.calc.offRecipe,
-      m0: r.values.m0, m1: r.values.m1, impurities: r.values.impurities, feedTph: r.calc.feedTph,
+      m0: r.values.m0, m1: r.values.m1, impurities: r.values.impurities, feedKgh: r.calc.feedKgh,
       waterL: r.calc.waterL, waterLh: r.calc.waterLh, expectedKg: isNum(r.calc.expectedKg) ? r.calc.expectedKg : null,
       extraction: r.calc.extraction, dampenerMaxLh: P.dampenerMax(S.cfgP, f.lineId),
       recipe: { colours: f.recipe.colours.slice(), grades: f.recipe.grades.slice(), source: 'job' },
@@ -484,7 +484,7 @@ window.ProdUI = function (C) {
       <label class="fld">${esc(t('shift'))}<select id="logPeriod"><option value="D" ${ls.period === 'D' ? 'selected' : ''}>${esc(t('shift_D'))} 07–19</option><option value="N" ${ls.period === 'N' ? 'selected' : ''}>${esc(t('shift_N'))} 19–07</option></select></label></div>
       <div class="kpis k4"><div><b>${sm.jobs.length}</b><span>${esc(t('ptab_jobs'))}</span></div><div class="${sm.openIssues ? 'd-warn' : ''}"><b>${sm.issues.length}</b><span>${esc(t('issues'))}</span></div>
         <div><b>${sm.downtimeMin}</b><span>${esc(t('downtimeMin'))}</span></div><div><b>${sm.acts.length}</b><span>${esc(t('activities'))}</span></div></div>
-      ${Object.keys(sm.byV2).length ? `<p class="sub">${esc(t('byV2'))}: ${Object.keys(sm.byV2).map(k => esc(v2Label(k)) + ' ' + sm.byV2[k] + ' min').join(' · ')}<br>${esc(t('byOee'))}: ${Object.keys(sm.byOee).map(k => esc(oeeLabel(k)) + ' ' + sm.byOee[k] + ' min').join(' · ')}</p>` : ''}
+      ${Object.keys(sm.byTier3).length ? `<p class="sub">${esc(t('byTier3'))}: ${Object.keys(sm.byTier3).map(k => esc(tierLabel(k)) + ' ' + sm.byTier3[k] + ' min').join(' · ')}<br>${esc(t('byOee'))}: ${Object.keys(sm.byOee).map(k => esc(oeeLabel(k)) + ' ' + sm.byOee[k] + ' min').join(' · ')}</p>` : ''}
       ${f ? '' : `<div class="row"><button class="btn primary" data-pact="newissue">＋ ${esc(t('newIssue'))}</button><button class="btn" data-pact="newact">＋ ${esc(t('newActivity'))}</button></div>`}
       <div class="row"><button class="btn ghost small" data-pact="shiftxlsx">${esc(t('genExcel'))}</button>
         <a class="btn ghost small" target="_blank" rel="noopener" href="${esc(C.waLink(shiftText(ls, sm)))}">${esc(t('sendSummaryWa'))}</a></div></section>
@@ -556,7 +556,7 @@ window.ProdUI = function (C) {
     const open = i.status !== 'closed';
     const act = S.logAct && S.logAct.uid === i.uid ? S.logAct.mode : null;
     return `<div class="rowitem">
-      <div class="row between"><span><b>${esc(C.fmtTime(i.t))}</b>${i.code ? ' · <b>' + esc(codeLabel(i.code, cd)) + '</b> <small>(' + esc(v2Label(cd && cd.v2)) + ')</small>' : ' · ' + esc(t('noStopCode'))}${i.lineId ? ' · ' + esc(C.lineName(i.lineId)) : ''}${i.equipment ? ' · ' + esc(i.equipment) : ''}</span>
+      <div class="row between"><span><b>${esc(C.fmtTime(i.t))}</b>${i.code ? ' · <b>' + esc(codeLabel(i.code, cd)) + '</b> <small>(' + esc(tierLabel(cd && cd.tier3)) + ')</small>' : ' · ' + esc(t('noStopCode'))}${i.lineId ? ' · ' + esc(C.lineName(i.lineId)) : ''}${i.equipment ? ' · ' + esc(i.equipment) : ''}</span>
         <span class="chip ${open ? 'd-warn' : 'd-accept'}">${esc(open ? t('is_open') : t('is_closed'))}</span></div>
       <div>${esc(i.description)}</div>
       <small>${isNum(i.downtimeMin) ? esc(t('downtimeMin')) + ': ' + i.downtimeMin + ' · ' : ''}${esc(t('crew'))} ${esc(i.crew)} · ${esc(i.by)}</small>
@@ -590,7 +590,7 @@ window.ProdUI = function (C) {
   function shiftText(ls, sm) {
     const lines = [t('waShiftTitle', { d: ls.day, s: t('shift_' + ls.period) })];
     sm.jobs.forEach(j => lines.push('▶ ' + C.lineName(j.lineId) + ' ' + prodNames(j) + ': ' + fmtKg(j.grainKg) + ' kg · ' + t('js_' + (JOB_ST[j.status] ? j.status : 'running'))));
-    lines.push(t('issues') + ': ' + sm.issues.length + ' (' + t('is_open') + ' ' + sm.openIssues + ') · ' + t('downtimeMin') + ': ' + sm.downtimeMin + (Object.keys(sm.byV2).length ? ' (' + Object.keys(sm.byV2).map(k => v2Label(k) + ' ' + sm.byV2[k]).join(', ') + ')' : ''));
+    lines.push(t('issues') + ': ' + sm.issues.length + ' (' + t('is_open') + ' ' + sm.openIssues + ') · ' + t('downtimeMin') + ': ' + sm.downtimeMin + (Object.keys(sm.byTier3).length ? ' (' + Object.keys(sm.byTier3).map(k => tierLabel(k) + ' ' + sm.byTier3[k]).join(', ') + ')' : ''));
     sm.issues.forEach(i => lines.push('• ' + C.fmtTime(i.t) + ' ' + (i.code ? codeLabel(i.code, i.codeInfo) : t('noStopCode')) + (i.lineId ? ' ' + i.lineId : '') + ': ' + i.description + (isNum(i.downtimeMin) ? ' (' + i.downtimeMin + ' min)' : '')));
     if (sm.acts.length) lines.push(t('activities') + ': ' + sm.acts.map(a => t('at_' + (ACT.has(a.type) ? a.type : 'other')) + (a.floor ? ' ' + a.floor : '')).join('; '));
     return lines.join('\n');
@@ -600,10 +600,10 @@ window.ProdUI = function (C) {
     const add = (name, rows) => XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), name.slice(0, 31));
     add(t('x_jobs'), [[t('waShiftTitle', { d: ls.day, s: t('shift_' + ls.period) })], [],
       [t('line'), t('product'), t('status'), t('startedAt'), t('closedAt'), t('shiftLeader'), t('crew'), t('grainToMill') + ' (kg)', t('fromBins'), t('binContents'), t('temperedBin'), t('toBins'),
-        t('m0'), t('impurities'), t('m1'), t('feedRate') + ' (t/h)', t('waterRate') + ' (L/h)', t('waterTotal') + ' (L)', t('jobRecipe'), t('x_offRecipe'), t('x_outputs'), t('extraction') + ' % (' + t('total') + ')', t('expectedProduct') + ' (kg, ' + t('total') + ')', t('actualGrain') + ' (kg)', t('notes')],
+        t('m0'), t('impurities'), t('m1'), t('feedRate') + ' (kg/h)', t('waterRate') + ' (L/h)', t('waterTotal') + ' (L)', t('jobRecipe'), t('x_offRecipe'), t('x_outputs'), t('extraction') + ' % (' + t('total') + ')', t('expectedProduct') + ' (kg, ' + t('total') + ')', t('actualGrain') + ' (kg)', t('notes')],
       ...sm.jobs.map(j => [C.lineName(j.lineId), prodNames(j), t('js_' + (JOB_ST[j.status] ? j.status : 'running')), C.fmtDT(j.startedAt), j.closedAt ? C.fmtDT(j.closedAt) : '',
         j.leader, j.crew, j.grainKg, (j.alloc || []).map(a => (a.bin || a.silo) + '=' + a.kg).join('; '),
-        j.sourceComps ? Object.keys(j.sourceComps).map(k => k + ': ' + compText(j.sourceComps[k])).join(' | ') : '', (j.tempered || []).join(', '), (j.bins || []).join(', '), j.m0, j.impurities, j.m1, j.feedTph, j.waterLh, j.waterL,
+        j.sourceComps ? Object.keys(j.sourceComps).map(k => k + ': ' + compText(j.sourceComps[k])).join(' | ') : '', (j.tempered || []).join(', '), (j.bins || []).join(', '), j.m0, j.impurities, j.m1, P.feedKghOf(j), j.waterLh, j.waterL,
         j.recipe && P.recipeSet(j.recipe) ? j.recipe.colours.join('/') + ' · ' + j.recipe.grades.join('/') : '',
         (j.offRecipe || []).map(x => x.bin || x.silo).join(', ') + (j.offRecipeAuth ? ' (' + j.offRecipeAuth.by + ': ' + j.offRecipeAuth.reason + ')' : ''),
         P.jobOutputs(j).map(o => C.prodName(o.productId) + ' ' + (isNum(o.extraction) ? o.extraction + ' %' : '—') + ' = ' + (isNum(o.expectedKg) ? o.expectedKg + ' kg' : '—') + ' → ' + (o.bins || []).join('/')).join(' | '),
@@ -613,14 +613,14 @@ window.ProdUI = function (C) {
       ...[].concat(...mvs.map(m => m.type === 'EMPTY' ? [[C.fmtDT(m.t), m.crew, t('mv_EMPTY'), m.binId, '', m.bookKg, '', '', m.by]]
         : (m.parts || []).map(pt => [C.fmtDT(m.t), m.crew, t('mv_TRANSFER'), m.binId, pt.silo, pt.kg, pt.colour, gradeName(pt.grade), m.by])))]);
     add(t('dirtyBins'), [[t('dirtyBin'), t('fedBy'), t('capacityT'), 'kg', t('binContents')],
-      ...(S.cfgP.dirtyBins || []).map(b => { const st = dirtyState(b.id); return [b.id, b.lines.join('/'), isNum(b.capT) ? b.capT : '', st.kg, compText(st.comps)]; })]);
+      ...(S.cfgP.dirtyBins || []).map(b => { const st = dirtyState(b.id); return [b.id, b.lines.join('/'), isNum(b.capKg) ? b.capKg : '', st.kg, compText(st.comps)]; })]);
     const rds = [];
     (S.jobs || []).forEach(j => (j.readings || []).forEach(r => { if (r.t >= range[0] && r.t < range[1]) rds.push([C.fmtDT(r.t), r.crew, C.lineName(j.lineId), prodNames(j), r.m0, j.m1, r.waterLh, r.over ? t('overDampener') : '', r.by, r.kind === 'start' ? t('atStart') : '']); }));
     add(t('maizeMoisture'), [[t('dateTime'), t('crew'), t('line'), t('product'), t('maizeMoistureCol') + ' %', t('m1') + ' %', t('waterRate') + ' (L/h)', '', t('name'), ''], ...rds]);
-    add(t('issues'), [[t('dateTime'), t('crew'), t('line'), t('downtimeCode'), t('codeName'), t('codeNamePt'), 'V1', 'V2', 'Tier 3', t('oeeTreat'), t('equipment'), t('issueDesc'), t('downtimeMin'), t('actionCol'), t('status'), t('reportedBy'), t('closedAt'), t('resolution')],
-      ...sm.issues.map(i => { const d = i.codeInfo || P.findCode(i.code, codes()) || {}; return [C.fmtDT(i.t), i.crew, i.lineId ? C.lineName(i.lineId) : '', i.code || '', d.name || '', d.namePt || '', d.v1 || '', d.v2 || '', d.tier3 || '', d.oee ? t('oee_' + d.oee) : '', i.equipment, i.description,
+    add(t('issues'), [[t('dateTime'), t('crew'), t('line'), t('downtimeCode'), t('codeName'), t('codeNamePt'), 'Tier 3', t('oeeTreat'), t('equipment'), t('issueDesc'), t('downtimeMin'), t('actionCol'), t('status'), t('reportedBy'), t('closedAt'), t('resolution')],
+      ...sm.issues.map(i => { const d = i.codeInfo || P.findCode(i.code, codes()) || {}; return [C.fmtDT(i.t), i.crew, i.lineId ? C.lineName(i.lineId) : '', i.code || '', d.name || '', d.namePt || '', d.tier3 || '', d.oee ? t('oee_' + d.oee) : '', i.equipment, i.description,
         isNum(i.downtimeMin) ? i.downtimeMin : '', i.action, i.status === 'closed' ? t('is_closed') : t('is_open'), i.by, i.closedAt ? C.fmtDT(i.closedAt) : '', i.resolution || '']; })]);
-    add(t('byV2'), [['V2', t('downtimeMin')], ...Object.keys(sm.byV2).map(k => [v2Label(k), sm.byV2[k]]), [], [t('oeeTreat'), t('downtimeMin')],
+    add(t('byTier3'), [['V2', t('downtimeMin')], ...Object.keys(sm.byTier3).map(k => [tierLabel(k), sm.byTier3[k]]), [], [t('oeeTreat'), t('downtimeMin')],
       ...Object.keys(sm.byOee).map(k => [oeeLabel(k), sm.byOee[k]]), [], [t('codesSource', { s: S.cfgP.codesSource || P.DOWNTIME_SOURCE })]]);
     add(t('activities'), [[t('dateTime'), t('crew'), t('line'), t('activityType'), t('floor'), t('qtyKg'), t('product'), t('description'), t('doneBy')],
       ...sm.acts.map(a => [C.fmtDT(a.t), a.crew, a.lineId ? C.lineName(a.lineId) : '', t('at_' + (ACT.has(a.type) ? a.type : 'other')), a.floor || '', isNum(a.qtyKg) ? a.qtyKg : '',
@@ -629,7 +629,7 @@ window.ProdUI = function (C) {
     add(t('x_alerts'), [[t('dateTime'), t('line'), t('product'), t('decision'), t('failures')],
       ...qa.map(s => [C.fmtDT(s.t), C.lineName(s.lineId), C.prodName(s.productId), C.decLabel(s.decision), s.failures.map(f => C.anyLabel(f.param, C.product(s.productId)) + '=' + (f.value === 'abn' ? t('abnormal') : f.value)).join('; ')])]);
     add(t('ptab_bins'), [[t('bin'), t('fedBy'), t('capacityT'), t('content'), t('since')],
-      ...S.cfgP.bins.map(b => { const st = P.binState(b.id, S.binEvents); return [b.id, b.lines.join('/'), isNum(b.capT) ? b.capT : '', st.productId ? C.prodName(st.productId) : t('binEmpty'), st.since ? C.fmtDT(st.since) : '']; })]);
+      ...S.cfgP.bins.map(b => { const st = P.binState(b.id, S.binEvents); return [b.id, b.lines.join('/'), isNum(b.capKg) ? b.capKg : '', st.productId ? C.prodName(st.productId) : t('binEmpty'), st.since ? C.fmtDT(st.since) : '']; })]);
     return wb;
   }
   function shiftExcel() {
@@ -646,7 +646,7 @@ window.ProdUI = function (C) {
         const st = P.binState(b.id, S.binEvents);
         const job = st.jobUid ? S.jobs.find(j => j.uid === st.jobUid) : null;
         const mine = a && a.id === b.id ? a.mode : null;
-        return `<div class="rowitem"><div class="row between"><span><b>${esc(b.id)}</b> <small>${esc(t('fedBy'))} ${esc(b.lines.join('/'))}${isNum(b.capT) ? ' · ' + fmtKg(b.capT) + ' t' : ''}</small></span>
+        return `<div class="rowitem"><div class="row between"><span><b>${esc(b.id)}</b> <small>${esc(t('fedBy'))} ${esc(b.lines.join('/'))}${isNum(b.capKg) ? ' · ' + fmtKg(b.capKg) + ' kg' : ''}</small></span>
           <span class="chip ${st.productId ? 'd-warn' : 'd-accept'}">${esc(st.productId ? C.prodName(st.productId) : t('binEmpty'))}</span></div>
           ${st.since ? `<small>${esc(t('since'))} ${esc(C.fmtDT(st.since))}${job ? ' · ' + esc(C.lineName(job.lineId)) + (job.status === 'running' ? ' (' + esc(t('js_running')) + ')' : '') : ''}${st.last && st.last.by ? ' · ' + esc(st.last.by) : ''}</small>` : ''}
           ${mine ? `<div class="holdform">
@@ -685,7 +685,7 @@ window.ProdUI = function (C) {
       <label class="fld">${esc(t('ctxOperator'))}<input data-ctx="operatorId" value="${esc((S.ctx && S.ctx.operatorId) || '')}" maxlength="40"></label>
       <label class="chk"><input type="checkbox" data-ctx="testMode" ${S.ctx && S.ctx.testMode ? 'checked' : ''}> ${esc(t('ctxTest'))}</label></section>`;
     return ctxCard + `<section class="card"><h3>${esc(t('prodSettings'))}</h3>
-      <p class="sub">${esc(t('prodSettingsSummary', { c: lineIds().map(id => id + ' ' + fmtKg(c.lineTpd[id]) + ' t/d').join(' · '), d: lineIds().map(id => id + ' ' + fmtKg(P.dampenerMax(c, id))).join(' · '), b: c.bins.length }))}</p>
+      <p class="sub">${esc(t('prodSettingsSummary', { c: lineIds().map(id => id + ' ' + fmtKg(c.lineKgDay[id]) + ' kg/d').join(' · '), d: lineIds().map(id => id + ' ' + fmtKg(P.dampenerMax(c, id))).join(' · '), b: c.bins.length }))}</p>
       <button class="btn" data-nav="prodset">${esc(t('editProdSettings'))}</button></section>
       <section class="card"><h3>${esc(t('codesTitle'))}</h3>
       <p class="sub">${esc(t('codesSummary', { n: codes().filter(c => c.active !== false).length, s: S.cfgP.codesSource || '', pt: codes().filter(c => c.namePt).length, o: codes().filter(c => c.oee).length }))}</p>
@@ -695,7 +695,7 @@ window.ProdUI = function (C) {
     if (!S.prodDraft) S.prodDraft = JSON.parse(JSON.stringify(S.cfgP));
     const d = S.prodDraft;
     return `<section class="card"><h2>${esc(t('prodSettings'))}</h2><p class="sub">${esc(t('prodSettingsNote'))}</p>
-      <div class="grid2">${lineIds().map(id => `<label class="fld">${esc(t('lineCap', { l: C.lineName(id) }))}<input inputmode="decimal" data-ps="tpd|${esc(id)}" value="${esc(C.fmtNum(d.lineTpd[id]))}"></label>`).join('')}
+      <div class="grid2">${lineIds().map(id => `<label class="fld">${esc(t('lineCap', { l: C.lineName(id) }))}<input inputmode="decimal" data-ps="tpd|${esc(id)}" value="${esc(C.fmtNum(d.lineKgDay[id]))}"></label>`).join('')}
       ${lineIds().map(id => `<label class="fld">${esc(t('dampenerMaxLine', { l: C.lineName(id) }))}<input inputmode="decimal" data-ps="dampl|${esc(id)}" value="${esc(C.fmtNum(P.dampenerMax(d, id)))}"></label>`).join('')}</div></section>
       <section class="card"><h3>${esc(t('masterData'))}</h3><p class="sub">${esc(t('masterHelp'))}</p>
         <label class="fld">${esc(t('grainSilosList'))}<textarea rows="2" data-ps="grainSilos">${esc((d.grainSilos || []).join(', '))}</textarea></label>
@@ -720,7 +720,7 @@ window.ProdUI = function (C) {
     const bad = [];
     document.querySelectorAll('[data-ps]').forEach(el => {
       const [k, a, b] = el.dataset.ps.split('|');
-      if (k === 'tpd') { const v = P.num(el.value); if (v === null || isNaN(v) || v <= 0) bad.push(t('lineCap', { l: a })); else n.lineTpd[a] = v; }
+      if (k === 'tpd') { const v = P.num(el.value); if (v === null || isNaN(v) || v <= 0) bad.push(t('lineCap', { l: a })); else n.lineKgDay[a] = v; }
       if (k === 'dampl') { const v = P.num(el.value); if (v === null || isNaN(v) || v <= 0) bad.push(t('dampenerMaxLine', { l: a })); else { n.dampenerMaxLhByLine = Object.assign({}, n.dampenerMaxLhByLine); n.dampenerMaxLhByLine[a] = v; } }
       if (k === 'bins') { const r = P.parseBins(el.value, lineIds()); if (r.errors.length || !r.bins.length) bad.push(t('ptab_bins') + ': ' + (r.errors.join(' | ') || '—')); else n.bins = r.bins; }
       if (k === 'dirtyBins' || k === 'temperedBins') { const r = P.parseBins(el.value, lineIds()); if (r.errors.length || !r.bins.length) bad.push(t(k) + ': ' + (r.errors.join(' | ') || '—')); else n[k] = r.bins; }
@@ -750,16 +750,15 @@ window.ProdUI = function (C) {
   function viewCodes() {
     const opt = (list, v, lab) => `<option value="">—</option>` + list.map(x => `<option value="${esc(x)}" ${v === x ? 'selected' : ''}>${esc(lab ? lab(x) : x)}</option>`).join('');
     return `<section class="card"><h2>${esc(t('codesTitle'))}</h2><p class="sub">${esc(t('codesHelp'))}</p>
-      <p class="sub">${esc(t('oeeProposal'))}</p></section>
-      ${codes().map((c, i) => `<details class="card code-ed ${c.active === false ? 'inactive' : ''}"><summary><b>${esc(c.code)}</b> ${esc(cName(c))} <small>· ${esc(v2Label(c.v2))} · ${esc(oeeLabel(c.oee))}${c.active === false ? ' · ' + esc(t('inactive')) : ''}</small></summary>
+      <p class="sub">${esc(t('oeeProposal'))}</p>${(S.cfgP.codesDropped || []).length ? `<p class="sub"><b>${esc(t('codesDroppedNote', { c: S.cfgP.codesDropped.join(', ') }))}</b></p>` : ''}</section>
+      ${codes().map((c, i) => `<details class="card code-ed ${c.active === false ? 'inactive' : ''}"><summary><b>${esc(c.code)}</b> ${esc(cName(c))} <small>· ${esc(tierLabel(c.tier3))} · ${esc(oeeLabel(c.oee))}${c.active === false ? ' · ' + esc(t('inactive')) : ''}</small></summary>
         <div class="grid2">
           <label class="fld">${esc(t('codeName'))} (EN)<input data-cd="${i}|name" value="${esc(c.name)}"></label>
           <label class="fld">${esc(t('codeNamePt'))}<input data-cd="${i}|namePt" value="${esc(c.namePt || '')}"></label>
-          <label class="fld">V2<select data-cd="${i}|v2">${opt(P.V2_CATS, c.v2)}</select></label>
           <label class="fld">Tier 3<select data-cd="${i}|tier3">${opt(P.TIER3, c.tier3)}</select></label>
-          <label class="fld">${esc(t('oeeTreat'))}<select data-cd="${i}|oee">${opt(P.OEE_TREAT, c.oee, o => t('oee_' + o))}</select></label>
+          <label class="fld">${esc(t('oeeTreat'))}<select data-cd="${i}|oee">${opt(P.OEE_TREAT, c.oee, o => t('oee_' + P.OEE_KEY[o]))}</select></label>
           <label class="chk"><input type="checkbox" data-cd="${i}|active" ${c.active !== false ? 'checked' : ''}> ${esc(t('activeCode'))}</label>
-        </div>${c.v1 ? `<p class="sub">V1: ${esc(c.v1)}</p>` : ''}</details>`).join('')}
+        </div></details>`).join('')}
       <section class="card"><h3>${esc(t('newCode'))}</h3><div class="grid2">
         <label class="fld">${esc(t('downtimeCode'))}<input id="nc_code" placeholder="P25"></label>
         <label class="fld">${esc(t('codeName'))} (EN)<input id="nc_name"></label></div><p class="sub">${esc(t('newCodeHelp'))}</p></section>
@@ -779,7 +778,7 @@ window.ProdUI = function (C) {
       else { const v = el.value.trim(); c[f] = v === '' ? (f === 'name' ? '' : null) : v; }
     });
     const nc = $('#nc_code').value.trim().toUpperCase(), nn = $('#nc_name').value.trim();
-    if (nc || nn) list.push({ code: nc, name: nn, namePt: null, v1: null, v2: null, tier3: null, oee: null, active: true });
+    if (nc || nn) list.push({ code: nc, name: nn, namePt: null, tier3: null, oee: null, active: true });
     const errs = P.validateCodes(list);
     if (errs.length) return C.toast(t('limitErrors') + ': ' + errs.join(', '));
     const n = Object.assign({}, S.cfgP, { downtimeCodes: list });
