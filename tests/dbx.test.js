@@ -10,7 +10,7 @@ const memStore = () => { const m = {}; return { get: k => (k in m ? m[k] : null)
     assert.strictEqual(await D.challengeOf('dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'), 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM');
   });
   await t('app key e redirect exactos', () => {
-    assert.strictEqual(D.APP_KEY, 'clt6iri77fmzaxk');
+    assert.strictEqual(D.APP_KEY, 'c1t6iri77fmzaxk');
     assert.strictEqual(D.REDIRECT_URI, 'https://ray2112.github.io/Mill-QC/');
   });
   await t('beginLogin: parâmetros e guarda verificador', async () => {

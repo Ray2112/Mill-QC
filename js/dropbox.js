@@ -2,7 +2,7 @@
    Dropbox sign-in with PKCE (no app secret). Only the app folder is accessed (scoped app). */
 (function (root) {
   'use strict';
-  const APP_KEY = 'clt6iri77fmzaxk';                       // App key (não é segredo)
+  const APP_KEY = 'c1t6iri77fmzaxk';                       // App key (não é segredo)
   const REDIRECT_URI = 'https://ray2112.github.io/Mill-QC/'; // tem de coincidir exactamente com a App Console
   const AUTH_URL = 'https://www.dropbox.com/oauth2/authorize';
   const TOKEN_URL = 'https://api.dropboxapi.com/oauth2/token';
