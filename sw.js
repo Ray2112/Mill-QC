@@ -1,7 +1,7 @@
 /* Cache próprio da app de CQ (não partilha com a app de Silos). Mudar CACHE em cada versão. */
 const CACHE = 'moagem-cq-v1.7.0';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'css/app.css', 'js/logic.js', 'js/prod.js', 'js/i18n.js', 'js/i18n-prod.js', 'js/prod-ui.js', 'js/db.js', 'js/app.js',
-  'vendor/xlsx.mini.min.js', 'icons/icon-192.png', 'icons/icon-512.png'];
+  'vendor/xlsx.full.min.js', 'icons/icon-192.png', 'icons/icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k.startsWith('moagem-cq-') && k !== CACHE).map(k => caches.delete(k))))
