@@ -282,11 +282,11 @@ window.ProdUI = function (C) {
   // ----- formulário da ordem -----
   function newJobForm() {
     const line = S.cfg.lines.find(l => !runningJob(l.id));
-    S.jobForm = { lineId: line ? line.id : '', grainKg: '', mode: 'seq', sources: [], blend: {}, tempered: [], m0: '', impurities: '', m1: '', feedKgh: '',
+    S.jobForm = { lineId: line ? line.id : '', mode: 'seq', sources: [], blend: {}, tempered: [], m0: '', impurities: '', m1: '', feedKgh: '',
       outputs: [newOutput()], recipe: { colours: [], grades: [] }, leader: defLeader() };
   }
   const prodNames = j => P.jobProducts(j).map(C.prodName).join(' + ') || '—';
-  const newOutput = () => ({ productId: '', targetExtraction: '', bins: [] });
+  const newOutput = () => ({ productId: '', targetKg: '', targetExtraction: '', bins: [] });
   // Bloco de um produto da ordem (v1.5.0): produto, extracção alvo e silos de produto
   function outputBlock(f, o, i, lineBins) {
     const n = f.outputs.length;
@@ -299,11 +299,14 @@ window.ProdUI = function (C) {
         ${other ? `<span class="chip d-record">${esc(t('binTakenBy', { p: other === '?' ? t('productN', { n: f.outputs.findIndex(x => x.bins.indexOf(b.id) >= 0) + 1 }) : C.prodName(other) }))}</span>`
           : `<span class="chip ${clash ? 'd-reject' : st.productId ? 'd-warn' : 'd-accept'}">${esc(st.productId ? C.prodName(st.productId) : t('binEmpty'))}</span>`}</button>`;
     }).join('');
+    // v1.8.0: só o produto principal (i = 0) tem extracção; os restantes têm só quantidade
+    const main = i === 0;
     return `<div class="param out">
-      <div class="row between"><b>${esc(t('productN', { n: i + 1 }))}</b>${n > 1 ? `<button class="btn ghost small" data-joutdel="${i}">${esc(t('remove'))}</button>` : ''}</div>
+      <div class="row between"><b>${esc(main ? t('mainProduct') : t('productN', { n: i + 1 }))}</b>${n > 1 ? `<button class="btn ghost small" data-joutdel="${i}">${esc(t('remove'))}</button>` : ''}</div>
       <div class="grid2">
         <label class="fld req">${esc(t('product'))}<select data-jo="${i}|productId"><option value="">—</option>${C.products().map(p => `<option value="${esc(p.id)}" ${o.productId === p.id ? 'selected' : ''}>${esc(C.prodName(p.id))}</option>`).join('')}</select></label>
-        <label class="fld req">${esc(t('extraction'))} (%)<input inputmode="decimal" data-joi="${i}|targetExtraction" value="${esc(o.targetExtraction)}"></label>
+        <label class="fld req">${esc(t('targetKg'))}<input inputmode="decimal" data-joi="${i}|targetKg" value="${esc(o.targetKg)}"></label>
+        ${main ? `<label class="fld req">${esc(t('extraction'))} (%)<input inputmode="decimal" data-joi="${i}|targetExtraction" value="${esc(o.targetExtraction)}"></label>` : ''}
       </div>
       <div class="sub req">${esc(t('toBins'))}</div>${f.lineId ? '' : `<p class="sub">${esc(t('pickLineFirst'))}</p>`}<div class="picks">${binRows}</div></div>`;
   }
@@ -329,7 +332,6 @@ window.ProdUI = function (C) {
     return `<section class="card"><h2>${esc(t('newJob'))}</h2>
       <div class="grid2">
         <label class="fld req">${esc(t('line'))}<select data-jf="lineId"><option value="">—</option>${S.cfg.lines.map(l => `<option value="${esc(l.id)}" ${f.lineId === l.id ? 'selected' : ''}>${esc(l.name)}${runningJob(l.id) ? ' (' + esc(t('busy')) + ')' : ''}</option>`).join('')}</select></label>
-        <label class="fld req">${esc(t('grainToMill'))} (kg)<input inputmode="decimal" data-jfi="grainKg" value="${esc(f.grainKg)}"></label>
         <label class="fld">${esc(t('feedRate'))} (kg/h)<input inputmode="decimal" data-jfi="feedKgh" value="${esc(f.feedKgh)}" placeholder="${esc(tphDef ? C.fmtNum(Math.round(tphDef * 100) / 100) : '')}"></label>
       </div>
       <p class="sub">${esc(t('feedRateHint'))}</p>
@@ -394,8 +396,9 @@ window.ProdUI = function (C) {
     if (isNum(c.waterL)) rows.push(`<div class="kv"><span>${esc(t('waterTotal'))}</span><b>${fmtKg(c.waterL)} L</b></div>`);
     if (isNum(c.waterLh)) rows.push(`<div class="kv"><span>${esc(t('waterRate'))}</span><b class="${isNum(c.dampenerMaxLh) && c.waterLh > c.dampenerMaxLh ? 'txt-reject' : ''}">${fmtKg(c.waterLh)} L/h <small>(${esc(t('max'))} ${fmtKg(c.dampenerMaxLh)})</small></b></div>`);
     if (isNum(c.hours)) rows.push(`<div class="kv"><span>${esc(t('duration'))}</span><b>${esc(C.fmtNum(c.hours))} h @ ${esc(C.fmtNum(c.feedKgh))} kg/h</b></div>`);
-    (c.outputs || []).forEach(o => { if (o.productId && isNum(o.expectedKg)) rows.push(`<div class="kv"><span>${esc(C.prodName(o.productId))}</span><b>${fmtKg(o.expectedKg)} kg (${esc(C.fmtNum(o.extraction))} %) → ${esc(o.bins.join(', ') || '—')}</b></div>`); });
-    if (isNum(c.expectedKg) && (c.outputs || []).length > 1) rows.push(`<div class="kv"><span>${esc(t('expectedProduct'))} · ${esc(t('total'))}</span><b>${fmtKg(c.expectedKg)} kg (${esc(C.fmtNum(c.extraction))} %)</b></div>`);
+    if (isNum(c.grainKg)) rows.push(`<div class="kv"><span>${esc(t('grainRequired'))}</span><b>${fmtKg(c.grainKg)} kg <small>(${esc(t('mainProduct'))} ${esc(C.fmtNum(c.extraction))} %)</small></b></div>`);
+    (c.outputs || []).forEach((o, i) => { if (o.productId && isNum(o.expectedKg)) rows.push(`<div class="kv"><span>${esc(C.prodName(o.productId))}</span><b>${fmtKg(o.expectedKg)} kg${i === 0 && isNum(o.extraction) ? ' (' + esc(C.fmtNum(o.extraction)) + ' %)' : ''} → ${esc(o.bins.join(', ') || '—')}</b></div>`); });
+    if (isNum(c.expectedKg) && (c.outputs || []).length > 1) rows.push(`<div class="kv"><span>${esc(t('expectedProduct'))} · ${esc(t('total'))}</span><b>${fmtKg(c.expectedKg)} kg</b></div>`);
     if (c.alloc && c.alloc.length) rows.push(`<div class="kv"><span>${esc(t('fromBins'))}</span><b>${allocText(c.alloc)}</b></div>`);
     return `${rows.join('')}
       ${r.errors.length ? `<div class="dec d-reject"><b>${esc(t('jobBlocked'))}</b>${r.errors.map(e => `<div class="li">• ${esc(errText(e))}</div>`).join('')}</div>` : `<div class="dec d-accept"><b>${esc(t('jobOk'))}</b></div>`}

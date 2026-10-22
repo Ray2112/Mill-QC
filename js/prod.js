@@ -7,7 +7,7 @@
  * introduzidas pelo chefe de turno em cada ordem, conforme a matéria-prima e os produtos pedidos.
  * Conteúdo fora da receita da ordem fica registado como aviso (não bloqueia, sem autorização).
  * v1.5.0 (Zhax, 09-10-2026): uma ordem pode fazer vários produtos ao mesmo tempo (ex.: Fuba 2 + grits cervejeira),
- * sem limite fixo. Cada produto tem a sua extracção alvo e os seus silos de produto; soma das extracções ≤ 100 %.
+ * sem limite fixo. Cada produto tem a sua quantidade alvo e os seus silos de produto; só o produto principal (1.º) tem extracção, e o grão = quantidade ÷ extracção (v1.8.0).
  */
 (function (root) {
   'use strict';
@@ -382,7 +382,8 @@
   function jobOutputs(job) {
     if (job && Array.isArray(job.outputs) && job.outputs.length) return job.outputs;
     if (!job) return [];
-    return [{ productId: job.productId || '', targetExtraction: job.targetExtraction !== undefined ? job.targetExtraction : job.extraction,
+    return [{ productId: job.productId || '', targetKg: job.targetKg !== undefined ? job.targetKg : job.expectedKg,
+      targetExtraction: job.targetExtraction !== undefined ? job.targetExtraction : job.extraction,
       extraction: job.extraction, expectedKg: job.expectedKg, bins: job.bins || [] }];
   }
   // Produtos de uma ordem gravada (para mostrar e exportar)
@@ -402,14 +403,28 @@
     const E = [], W = [], calc = {};
     const cfgP = ctx.cfgP;
     const blend = job.mode === 'blend';
-    const outs = jobOutputs(job).map(o => ({ productId: o.productId || '', ext: o.targetExtraction, bins: (o.bins || []).filter(Boolean) }));
+    const outs = jobOutputs(job).map(o => ({ productId: o.productId || '', ext: o.targetExtraction, kgT: o.targetKg, bins: (o.bins || []).filter(Boolean) }));
     if (!outs.length || outs.some(o => !o.productId)) E.push({ code: 'no_product' });
     const pids = outs.map(o => o.productId).filter(Boolean);
     if (new Set(pids).size !== pids.length) E.push({ code: 'product_dup' });
     if (!job.lineId) E.push({ code: 'no_line' });
-    const kg = num(job.grainKg, 'kg');
-    if (kg === null) E.push({ code: 'no_grain' });
-    else if (isNaN(kg) || kg <= 0) E.push({ code: 'bad', field: 'grainKg' });
+    // grão derivado (v1.8.0): só o produto principal (1.º da lista) tem extracção; G = quantidade ÷ extracção.
+    // Os restantes produtos têm apenas quantidade (kg). Grão não é introduzido à mão.
+    const multi = outs.length > 1;
+    const tag = o => multi ? { productId: o.productId } : {};
+    const mainOut = outs[0] || {};
+    const mainKg = num(mainOut.kgT, 'kg'), mainExt = num(mainOut.ext);
+    let kg = null;
+    if (mainKg === null) E.push(Object.assign({ code: 'need', field: 'targetKg' }, tag(mainOut)));
+    else if (isNaN(mainKg) || mainKg <= 0) E.push(Object.assign({ code: 'bad', field: 'targetKg' }, tag(mainOut)));
+    if (mainExt === null) E.push(Object.assign({ code: 'need', field: 'targetExtraction' }, tag(mainOut)));
+    else if (isNaN(mainExt) || mainExt <= 0 || mainExt > 100) E.push(Object.assign({ code: 'bad', field: 'targetExtraction' }, tag(mainOut)));
+    if (isNum(mainKg) && mainKg > 0 && isNum(mainExt) && mainExt > 0 && mainExt <= 100) kg = Math.round(mainKg * 100 / mainExt * 1000) / 1000;
+    outs.slice(1).forEach(o => {
+      const q = num(o.kgT, 'kg');
+      if (q === null) E.push(Object.assign({ code: 'need', field: 'targetKg' }, tag(o)));
+      else if (isNaN(q) || q <= 0) E.push(Object.assign({ code: 'bad', field: 'targetKg' }, tag(o)));
+    });
     const m1 = num(job.m1);
     if (m1 === null) E.push({ code: 'need', field: 'm1' }); else if (isNaN(m1) || m1 <= 0 || m1 >= 100) E.push({ code: 'bad', field: 'm1' });
     let kgh = feedKghOf(job);
@@ -499,20 +514,13 @@
       else if (job.lineId && b.lines.indexOf(job.lineId) < 0) E.push({ code: 'tempered_line', bin: id });
     });
 
-    // produto esperado
-    // por produto: extracção alvo (v1.4.0, por produto desde v1.5.0) e silos de produto (linha, produto, capacidade)
-    const multi = outs.length > 1;
-    const tag = o => multi ? { productId: o.productId } : {};
+    // produto esperado: quantidade alvo (kg) de cada produto; silos de produto (linha, produto, capacidade)
     const binOwner = {};
     calc.outputs = [];
-    let extSum = 0, extAll = true, expTotal = 0, capTotal = 0;
-    outs.forEach(o => {
-      const ext = num(o.ext);
-      if (ext === null) E.push(Object.assign({ code: 'need', field: 'targetExtraction' }, tag(o)));
-      else if (isNaN(ext) || ext <= 0 || ext > 100) E.push(Object.assign({ code: 'bad', field: 'targetExtraction' }, tag(o)));
-      const extOk = isNum(ext) && ext > 0 && ext <= 100;
-      if (extOk) extSum += ext; else extAll = false;
-      const exp = isNum(kg) && kg > 0 && extOk ? r0(kg * ext / 100) : null;
+    let expTotal = 0, capTotal = 0;
+    outs.forEach((o, idx) => {
+      const qty = num(o.kgT, 'kg');
+      const exp = isNum(qty) && qty > 0 ? r0(qty) : null;
       if (isNum(exp)) expTotal += exp;
       if (!o.bins.length) E.push(Object.assign({ code: 'no_bin' }, tag(o)));
       let capKnown = 0, unknownLevel = false, missingCap = false;
@@ -531,12 +539,11 @@
         if (!unknownLevel && exp > capKnown) E.push(Object.assign({ code: 'bin_capacity', need: exp, cap: capKnown }, tag(o)));
         else if (unknownLevel && exp > capKnown) W.push(Object.assign({ code: 'bin_level_unknown' }, tag(o)));
       }
-      calc.outputs.push({ productId: o.productId, extraction: extOk ? ext : null, expectedKg: exp, bins: o.bins.slice() });
+      calc.outputs.push({ productId: o.productId, extraction: idx === 0 && isNum(mainExt) ? mainExt : null, expectedKg: exp, bins: o.bins.slice() });
     });
-    extSum = Math.round(extSum * 100) / 100;
-    if (extAll && extSum > 100) E.push({ code: 'extraction_sum', sum: extSum });
-    calc.extraction = extAll && outs.length ? extSum : null;
-    if (calc.extraction !== null && isNum(kg) && kg > 0) calc.expectedKg = expTotal;
+    calc.extraction = isNum(mainExt) ? mainExt : null;     // extracção do produto principal
+    calc.grainKg = isNum(kg) ? r0(kg) : null;               // grão derivado
+    calc.expectedKg = outs.length ? expTotal : null;        // total de produtos (kg)
     calc.binCapKg = capTotal;
 
     // água

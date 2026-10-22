@@ -186,7 +186,8 @@ function ctx(extra) {
     moves: [mv('B01', [part('S01', 60000)], T0 + 100), mv('B02', [part('S02', 100000)], T0 + 100),
       mv('B03', [part('S03', 100000, 'Amarelo')], T0 + 100), mv('B04', [part('S04', 100000, 'Branco', 'OFF')], T0 + 100)] }, extra || {});
 }
-const baseJob = () => ({ productId: 'super', lineId: 'C', grainKg: '100.000', sources: ['B01', 'B02'], tempered: ['B05'], bins: ['B45', 'B44'],
+// v1.8.0: grão derivado = quantidade ÷ extracção do produto principal (70 000 kg ÷ 70 % = 100 000 kg)
+const baseJob = () => ({ productId: 'super', lineId: 'C', targetKg: '70.000', sources: ['B01', 'B02'], tempered: ['B05'], bins: ['B45', 'B44'],
   m0: '12,0', impurities: '1,5', m1: '16', feedKgh: '', recipe: { colours: ['Branco'], grades: ['G1'] }, targetExtraction: '70' });
 
 t('ordem válida: repartição pelos silos de moagem, água, caudal, produto esperado', () => {
@@ -196,6 +197,8 @@ t('ordem válida: repartição pelos silos de moagem, água, caudal, produto esp
   assert.strictEqual(r.calc.waterL, 4762);
   assert.strictEqual(r.calc.waterLh, 992);
   assert.strictEqual(r.calc.expectedKg, 70000);
+  assert.strictEqual(r.calc.grainKg, 100000);
+  assert.strictEqual(r.values.grainKg, 100000);
   assert.strictEqual(r.calc.hours, 4.8);
   const j = baseJob(); j.lineId = 'D'; j.tempered = ['B07']; j.bins = ['B43'];
   assert.deepStrictEqual(codes(P.validateJob(j, ctx())), []);          // B01–B04 servem as duas linhas
@@ -208,7 +211,7 @@ t('grão insuficiente nos silos de moagem → seleccionar mais', () => {
   // grão já tirado por outra ordem em curso não está disponível
   const c = ctx({ jobs: [{ uid: 'x', status: 'running', lineId: 'D', startedAt: T0 + 500, grainKg: 50000, alloc: [{ bin: 'B02', kg: 50000 }] }] });
   assert.ok(!codes(P.validateJob(baseJob(), c)).includes('source_short'));               // 60 000 + 50 000 ≥ 100 000
-  const r = P.validateJob(Object.assign(baseJob(), { grainKg: '120.000' }), c);
+  const r = P.validateJob(Object.assign(baseJob(), { targetKg: '84.000' }), c);     // 84 000 ÷ 70 % = 120 000 kg
   assert.ok(r.errors.some(x => x.code === 'source_short' && x.short === 10000));   // 60 000 + 50 000
 });
 
@@ -248,16 +251,19 @@ t('receita e extracção da ordem: obrigatórias (v1.4.0), campos em falta', () 
   const r = P.validateJob(j, ctx());
   ['recipe_not_set', 'no_source', 'need', 'bad'].forEach(c => assert.ok(codes(r).includes(c), c));
   assert.ok(r.errors.some(e => e.code === 'need' && e.field === 'targetExtraction'));
-  assert.strictEqual(r.calc.expectedKg, undefined);
+  assert.strictEqual(r.calc.grainKg, null);
   // a receita vem da ordem, não das Definições: configuração antiga é ignorada
   const c = ctx(); c.cfgP.recipes.super = { colours: ['Amarelo'], grades: ['OFF'] }; c.cfgP.extraction.super = 50;
   const r2 = P.validateJob(baseJob(), c);
   assert.deepStrictEqual(codes(r2), []); assert.strictEqual(r2.calc.extraction, 70); assert.strictEqual(r2.calc.expectedKg, 70000);
-  // extracção: limites e vírgula decimal
+  // extracção: limites e vírgula decimal (produto principal)
   ['0', '100,5', 'abc'].forEach(v => assert.ok(P.validateJob(Object.assign(baseJob(), { targetExtraction: v }), ctx()).errors.some(e => e.code === 'bad' && e.field === 'targetExtraction'), v));
   const r3 = P.validateJob(Object.assign(baseJob(), { targetExtraction: '72,5' }), ctx());
-  assert.strictEqual(r3.calc.extraction, 72.5); assert.strictEqual(r3.calc.expectedKg, 72500);
-  assert.strictEqual(P.validateJob(Object.assign(baseJob(), { targetExtraction: '100' }), ctx()).calc.extraction, 100);
+  assert.strictEqual(r3.calc.extraction, 72.5); assert.strictEqual(r3.calc.grainKg, 96552);   // 70 000 ÷ 0,725
+  assert.strictEqual(P.validateJob(Object.assign(baseJob(), { targetExtraction: '100' }), ctx()).calc.grainKg, 70000);
+  // quantidade alvo em falta ou inválida
+  assert.ok(codes(P.validateJob(Object.assign(baseJob(), { targetKg: '' }), ctx())).includes('need'));
+  assert.ok(P.validateJob(Object.assign(baseJob(), { targetKg: '0' }), ctx()).errors.some(e => e.code === 'bad' && e.field === 'targetKg'));
   // cor/grau desconhecidos na receita
   assert.ok(codes(P.validateJob(Object.assign(baseJob(), { recipe: { colours: ['Roxo'], grades: ['G1'] } }), ctx())).includes('recipe_bad'));
   assert.ok(codes(P.validateJob(Object.assign(baseJob(), { recipe: { colours: ['Branco'], grades: ['REJ'] } }), ctx())).includes('recipe_bad'));
@@ -326,7 +332,8 @@ t('capacidade dos silos de produto', () => {
   const r2 = P.validateJob(j, ctx({ binEvents: [{ binId: 'B34', type: 'FILL', productId: 'super', t: 1 }] }));
   assert.ok(!codes(r2).includes('bin_capacity'));
   assert.ok(r2.warnings.some(w => w.code === 'bin_level_unknown'));
-  assert.ok(!codes(P.validateJob(Object.assign(baseJob(), { bins: ['B34'], targetExtraction: '' }), ctx())).includes('bin_capacity'));
+  // v1.8.0: a capacidade compara a quantidade alvo (kg), por isso não depende da extracção
+  assert.ok(codes(P.validateJob(Object.assign(baseJob(), { bins: ['B34'], targetExtraction: '' }), ctx())).includes('bin_capacity'));
 });
 
 t('mistura: percentagens, humidade ponderada, stock por silo de moagem', () => {
@@ -370,36 +377,41 @@ t('cor/grau fora da receita da ordem: registado como aviso, não bloqueia (opç�
 });
 
 
-t('vários produtos na mesma ordem (v1.5.0): extracção e silos por produto', () => {
-  const mk = outs => Object.assign(baseJob(), { productId: undefined, bins: undefined, targetExtraction: undefined, outputs: outs });
-  const j = mk([{ productId: 'fuba2', targetExtraction: '45', bins: ['B44'] }, { productId: 'brew_grits', targetExtraction: '30', bins: ['B45'] }]);
+t('vários produtos (v1.8.0): grão = produto principal (1.º); outros só quantidade; sem limite de 92 %', () => {
+  const mk = outs => Object.assign(baseJob(), { productId: undefined, bins: undefined, targetExtraction: undefined, targetKg: undefined, outputs: outs });
+  const j = mk([{ productId: 'fuba2', targetKg: '45.000', targetExtraction: '45', bins: ['B44'] }, { productId: 'brew_grits', targetKg: '30.000', bins: ['B45'] }]);
   const r = P.validateJob(j, ctx());
   assert.deepStrictEqual(codes(r), []);
-  assert.deepStrictEqual(r.calc.outputs.map(o => [o.productId, o.extraction, o.expectedKg, o.bins]), [['fuba2', 45, 45000, ['B44']], ['brew_grits', 30, 30000, ['B45']]]);
-  assert.strictEqual(r.calc.extraction, 75); assert.strictEqual(r.calc.expectedKg, 75000);
-  // três produtos: sem limite fixo
-  const j3 = mk([{ productId: 'fuba2', targetExtraction: '40', bins: ['B44'] }, { productId: 'brew_grits', targetExtraction: '20', bins: ['B45'] }, { productId: 'snack_grits', targetExtraction: '10', bins: ['B46'] }]);
+  assert.strictEqual(r.calc.grainKg, 100000);                                            // 45 000 ÷ 45 %
+  assert.deepStrictEqual(r.calc.outputs.map(o => [o.productId, o.extraction, o.expectedKg, o.bins]), [['fuba2', 45, 45000, ['B44']], ['brew_grits', null, 30000, ['B45']]]);
+  assert.strictEqual(r.calc.extraction, 45); assert.strictEqual(r.calc.expectedKg, 75000);
+  // extracção dos produtos secundários é ignorada (mesmo se preenchida com valor inválido)
+  assert.deepStrictEqual(codes(P.validateJob(mk([{ productId: 'fuba2', targetKg: '45.000', targetExtraction: '45', bins: ['B44'] }, { productId: 'brew_grits', targetKg: '30.000', targetExtraction: 'abc', bins: ['B45'] }]), ctx())), []);
+  // três produtos: sem limite de soma
+  const j3 = mk([{ productId: 'fuba2', targetKg: '40.000', targetExtraction: '40', bins: ['B44'] }, { productId: 'brew_grits', targetKg: '20.000', bins: ['B45'] }, { productId: 'snack_grits', targetKg: '10.000', bins: ['B46'] }]);
   assert.deepStrictEqual(codes(P.validateJob(j3, ctx())), []);
-  // soma > 100 %
-  const js = mk([{ productId: 'fuba2', targetExtraction: '70', bins: ['B44'] }, { productId: 'brew_grits', targetExtraction: '35,5', bins: ['B45'] }]);
-  const es = P.validateJob(js, ctx()).errors.find(e => e.code === 'extraction_sum'); assert.ok(es); assert.strictEqual(es.sum, 105.5);
+  // quantidade em falta no produto secundário → identificado
+  const jq = mk([{ productId: 'fuba2', targetKg: '45.000', targetExtraction: '45', bins: ['B44'] }, { productId: 'brew_grits', targetKg: '', bins: ['B45'] }]);
+  assert.ok(P.validateJob(jq, ctx()).errors.some(e => e.code === 'need' && e.field === 'targetKg' && e.productId === 'brew_grits'));
   // produto repetido, silo em dois produtos, produto sem silo, extracção em falta — com o produto identificado
-  const jb = mk([{ productId: 'fuba2', targetExtraction: '', bins: ['B44'] }, { productId: 'fuba2', targetExtraction: '20', bins: ['B44'] }, { productId: 'brew_grits', targetExtraction: '10', bins: [] }]);
+  const jb = mk([{ productId: 'fuba2', targetKg: '45.000', targetExtraction: '', bins: ['B44'] }, { productId: 'fuba2', targetKg: '20.000', bins: ['B44'] }, { productId: 'brew_grits', targetKg: '10.000', bins: [] }]);
   const rb = P.validateJob(jb, ctx());
   ['product_dup', 'bin_dup', 'no_bin', 'need'].forEach(c => assert.ok(codes(rb).includes(c), c));
   assert.ok(rb.errors.some(e => e.code === 'no_bin' && e.productId === 'brew_grits'));
   assert.ok(rb.errors.some(e => e.code === 'need' && e.field === 'targetExtraction' && e.productId === 'fuba2'));
   // produto sem escolher
-  assert.ok(codes(P.validateJob(mk([{ productId: '', targetExtraction: '40', bins: ['B44'] }]), ctx())).includes('no_product'));
+  assert.ok(codes(P.validateJob(mk([{ productId: '', targetKg: '40.000', targetExtraction: '40', bins: ['B44'] }]), ctx())).includes('no_product'));
   // silo de produto com outro produto: verificado por produto
-  const jc = mk([{ productId: 'fuba2', targetExtraction: '45', bins: ['B44'] }, { productId: 'brew_grits', targetExtraction: '30', bins: ['B45'] }]);
+  const jc = mk([{ productId: 'fuba2', targetKg: '45.000', targetExtraction: '45', bins: ['B44'] }, { productId: 'brew_grits', targetKg: '30.000', bins: ['B45'] }]);
   const rc = P.validateJob(jc, ctx({ binEvents: [{ binId: 'B45', type: 'FILL', productId: 'fuba2', t: 1 }] }));
   assert.ok(rc.errors.some(e => e.code === 'bin_other_product' && e.bin === 'B45' && e.productId === 'brew_grits'));
-  // capacidade por produto: grits 30 % de 700 t = 210 t > B45 188 t
-  const jk = Object.assign(mk([{ productId: 'fuba2', targetExtraction: '45', bins: ['B44', 'B46'] }, { productId: 'brew_grits', targetExtraction: '30', bins: ['B45'] }]), { grainKg: '700.000', sources: ['B01', 'B02', 'B03', 'B04'] });
+  // capacidade por produto: grits 210 t > B45 188 t; grão = 315 t ÷ 45 % = 700 t
+  const jk = mk([{ productId: 'fuba2', targetKg: '315.000', targetExtraction: '45', bins: ['B44', 'B46'] }, { productId: 'brew_grits', targetKg: '210.000', bins: ['B45'] }]);
+  Object.assign(jk, { sources: ['B01', 'B02', 'B03', 'B04'] });
   const ck = ctx(); ck.moves.push(mv('B01', [part('S05', 70000)], T0 + 200), mv('B02', [part('S06', 30000)], T0 + 200));
   ck.moves.push(mv('B03', [part('S07', 400000)], T0 + 200));
   const rk = P.validateJob(jk, ck);
+  assert.strictEqual(rk.calc.grainKg, 700000);
   const cap = rk.errors.find(e => e.code === 'bin_capacity'); assert.ok(cap); assert.strictEqual(cap.productId, 'brew_grits'); assert.strictEqual(cap.need, 210000);
   assert.ok(!rk.errors.some(e => e.code === 'bin_capacity' && e.productId === 'fuba2'));   // 315 t ≤ 376 t
   // ordem antiga (v1.4.0) lida pelo mesmo caminho
