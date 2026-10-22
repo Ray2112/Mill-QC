@@ -11,7 +11,8 @@
   const RANK = { record: 0, accept: 1, warn: 2, reject: 3 };
   const CREWS = ['A', 'B', 'C', 'D'];
   const MILL_TYPES = ['maize', 'wheat', 'rice'];
-  const PHYSICAL = ['odour', 'colour', 'mould', 'insects', 'foreign'];
+  const PHYSICAL = ['odour', 'colour'];          // v1.8.0: só odor e cor (cor em escala 1–5, 1 = muito boa, 5 = muito má)
+  const COLOUR_SCALE = [1, 2, 3, 4, 5];
   const FREQS = ['hourly', 'shift', 'optional'];
   const HOUR_MS = 3600000;
 
@@ -152,6 +153,7 @@
     let physAny = false, physAbn = [];
     PHYSICAL.forEach(k => {
       const v = physical ? physical[k] : null;
+      if (k === 'colour') { const c = Number(v); if (v !== null && v !== '' && Number.isInteger(c) && COLOUR_SCALE.indexOf(c) >= 0) { phys[k] = c; physAny = true; } return; }
       if (v === 'ok' || v === 'abn') { phys[k] = v; physAny = true; if (v === 'abn') physAbn.push(k); }
     });
     if (physAny && PHYSICAL.some(k => !phys[k])) errors.push({ field: 'physical', code: 'incomplete' });
@@ -478,7 +480,7 @@
     });
     return changed ? Object.assign({}, job, { readings }) : job;
   }
-  const api = { VERSION, DECISIONS, RANK, CREWS, MILL_TYPES, PHYSICAL, PARAMS, EXTRA, UNITS, FREQS,
+  const api = { VERSION, DECISIONS, RANK, CREWS, MILL_TYPES, PHYSICAL, COLOUR_SCALE, PARAMS, EXTRA, UNITS, FREQS,
     defaultProducts, defaultConfig, num, pct, evalParam, hasLimits, evaluateSample, worst,
     prodDay, prodDayRange, shiftOf, ymd, dueStatus, newHold, holdAfterSample, addHoldAction,
     effective, validateLimit, limitDiff, dayReport, validBackup, findProduct,

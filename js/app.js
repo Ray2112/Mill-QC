@@ -31,7 +31,7 @@
   const product = id => L.findProduct(S.cfg, id);
   const lineName = id => { const l = S.cfg.lines.find(x => x.id === id); return l ? l.name : id; };
   const prodName = id => t('prod_' + id);
-  const PHYS_SET = { odour: 1, colour: 1, mould: 1, insects: 1, foreign: 1 };
+  const PHYS_SET = { odour: 1, colour: 1 };
   function anyLabel(p, prod) { return PHYS_SET[p] ? t('ph_' + p) : paramLabel(p, prod); }
   function paramLabel(p, prod) {
     if ((p === 'granA' || p === 'granB') && prod && prod.limits[p] && prod.limits[p].sieve)
@@ -307,7 +307,7 @@
         <label class="fld">${esc(t('sampleTime'))}<input type="datetime-local" id="f_time" value="${esc(f.time)}"></label>
         <label class="fld req">${esc(t('operator'))}<input id="f_op" value="${esc(f.operator)}" autocomplete="name"></label>
       </div>
-      <div class="sub">${esc(t('crew'))}: <b>${esc(L.crewOfTime(Date.now()))}</b> · ${esc(t('class'))}: ${esc(prod.cls)}</div>
+      <div class="sub">${esc(t('crew'))}: <b>${esc(L.crewOfTime(Date.now()))}</b></div>
     </section>
     <section class="card"><h3>${esc(t('hourlyChecks'))}</h3>${hourly.map(p => paramInput(p, prod, ev)).join('')}${physicalBlock(ev)}</section>
     ${shift.length ? `<section class="card"><h3>${esc(t('shiftChecks'))}</h3>${shift.map(p => paramInput(p, prod, ev, pendingShift.includes(p))).join('')}</section>` : ''}
@@ -332,9 +332,11 @@
   function physicalBlock(ev) {
     const err = ev && ev.errors.some(e => e.field === 'physical');
     return `<div class="phys"><div class="sub">${esc(t('physical'))} ${err ? `<b class="txt-reject">${esc(t('physIncomplete'))}</b>` : ''}</div>
-      ${L.PHYSICAL.map(k => `<div class="physrow"><span>${esc(t('ph_' + k))}</span>
-        <div class="seg"><button data-phys="${k}" data-pv="ok" class="${S.form.physical[k] === 'ok' ? 'on ok' : ''}">${esc(t('normal'))}</button><button data-phys="${k}" data-pv="abn" class="${S.form.physical[k] === 'abn' ? 'on abn' : ''}">${esc(t('abnormal'))}</button></div></div>`).join('')}
-      <button class="btn ghost small" id="physAllOk">${esc(t('allNormal'))}</button></div>`;
+      <div class="physrow"><span>${esc(t('ph_odour'))}</span>
+        <div class="seg"><button data-phys="odour" data-pv="ok" class="${S.form.physical.odour === 'ok' ? 'on ok' : ''}">${esc(t('normal'))}</button><button data-phys="odour" data-pv="abn" class="${S.form.physical.odour === 'abn' ? 'on abn' : ''}">${esc(t('abnormal'))}</button></div></div>
+      <div class="physrow"><span>${esc(t('ph_colour'))}</span>
+        <div class="seg">${L.COLOUR_SCALE.map(n => `<button data-phys="colour" data-pv="${n}" class="${S.form.physical.colour === n ? 'on' : ''}">${n}</button>`).join('')}</div></div>
+      <small class="sub">${esc(t('colourScaleHint'))}</small></div>`;
   }
   function liveDecision(ev) {
     if (!ev) return '';
@@ -651,19 +653,18 @@
   document.addEventListener('click', async e => {
     const pel = e.target.closest(PU.CLICK_SEL);
     if (pel) return PU.onClick(pel);
-    const el = e.target.closest('[data-nav],[data-newsample],[data-run],[data-phys],[data-haction],[data-detail],[data-correct],[data-repday],#saveSample,#physAllOk,#closeModal,#genXlsx,#savePin,#openLimits,#saveLimits,#saveLines,#askNotif,#testAlert,#exportBk,#exportLim');
+    const el = e.target.closest('[data-nav],[data-newsample],[data-run],[data-phys],[data-haction],[data-detail],[data-correct],[data-repday],#saveSample,#closeModal,#genXlsx,#savePin,#openLimits,#saveLimits,#saveLines,#askNotif,#testAlert,#exportBk,#exportLim');
     if (!el) return;
     if (el.dataset.nav) { S.view = el.dataset.nav; S.modal = null; if (S.view === 'prodset') S.prodDraft = null; if (S.view === 'sample' && !S.form) newForm(); render(); window.scrollTo(0, 0); return; }
     if (el.dataset.repday) { S.repDay = el.dataset.repday; S.view = 'report'; render(); return; }
     if (el.dataset.newsample) { newForm(el.dataset.newsample); S.view = 'sample'; render(); window.scrollTo(0, 0); return; }
     if (el.dataset.run) return toggleRun(el.dataset.run);
-    if (el.dataset.phys) { S.form.physical[el.dataset.phys] = el.dataset.pv; const y = window.scrollY; render(); window.scrollTo(0, y); return; }
+    if (el.dataset.phys) { S.form.physical[el.dataset.phys] = el.dataset.phys === 'colour' ? Number(el.dataset.pv) : el.dataset.pv; const y = window.scrollY; render(); window.scrollTo(0, y); return; }
     if (el.dataset.haction) return recordHoldAction(el.dataset.haction);
     if (el.dataset.correct) { e.stopPropagation(); newForm(null, el.dataset.correct); S.view = 'sample'; render(); window.scrollTo(0, 0); return; }
     if (el.dataset.detail) { if (e.target.closest('a,button')) return; const id = el.dataset.detail; S.detailId = S.detailId === id ? null : id; render(); return; }
     switch (el.id) {
       case 'saveSample': return saveSample();
-      case 'physAllOk': L.PHYSICAL.forEach(k => { S.form.physical[k] = 'ok'; }); { const y = window.scrollY; render(); window.scrollTo(0, y); } return;
       case 'closeModal': S.modal = null; render(); return;
       case 'genXlsx': return genExcel();
       case 'savePin': return savePin();

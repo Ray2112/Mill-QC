@@ -6,7 +6,7 @@ function t(name, fn) { fn(); n++; }
 const cfg = L.defaultConfig();
 const P = id => L.findProduct(cfg, id);
 const ev = (id, v, ph) => L.evaluateSample(P(id), v, ph);
-const allOk = { odour: 'ok', colour: 'ok', mould: 'ok', insects: 'ok', foreign: 'ok' };
+const allOk = { odour: 'ok', colour: 2 };
 
 t('números', () => {
   assert.strictEqual(L.num('13,5'), 13.5);
@@ -90,11 +90,20 @@ t('grits: ≥90% grosso e ≤5% fino; frequência horária', () => {
   assert.strictEqual(ev('maize_rice', { fat: '1,6' }).decision, 'reject');
 });
 
+t('cor: escala 1–5 registada, sem decisão; odor é o único item que rejeita (v1.8.0)', () => {
+  assert.deepStrictEqual(L.PHYSICAL, ['odour', 'colour']);
+  assert.deepStrictEqual(L.COLOUR_SCALE, [1, 2, 3, 4, 5]);
+  const r5 = ev('super', {}, { odour: 'ok', colour: 5 });
+  assert.strictEqual(r5.decision, 'accept'); assert.strictEqual(r5.physical.colour, 5);
+  assert.ok(ev('super', {}, { odour: 'ok', colour: 6 }).errors.some(e => e.code === 'incomplete'));
+  assert.ok(ev('super', {}, { odour: 'ok', colour: '0' }).errors.some(e => e.code === 'incomplete'));
+  assert.ok(ev('super', {}, { odour: 'ok', colour: '3' }).errors.length === 0);   // texto numérico aceite
+});
 t('físico: tudo OK aceita; anormal rejeita; incompleto = erro', () => {
   assert.strictEqual(ev('super', {}, allOk).decision, 'accept');
-  const r = ev('super', { moisture: '13' }, Object.assign({}, allOk, { insects: 'abn' }));
+  const r = ev('super', { moisture: '13' }, Object.assign({}, allOk, { odour: 'abn' }));
   assert.strictEqual(r.decision, 'reject');
-  assert.ok(r.failures.some(f => f.param === 'insects'));
+  assert.ok(r.failures.some(f => f.param === 'odour'));
   assert.ok(ev('super', {}, { odour: 'ok' }).errors.some(e => e.code === 'incomplete'));
 });
 
