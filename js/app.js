@@ -497,8 +497,8 @@
     add(t('x_holds'), [[t('line'), t('product'), t('openedAt'), t('closedAt'), t('durationMin'), t('status'), t('reasons'), t('actions')],
       ...r.holds.map(h => [lineName(h.lineId), holdProds(h), fmtDT(h.openedAt), h.closedAt ? fmtDT(h.closedAt) : '', h.durationMin, t('hs_' + h.status),
         [...new Set(h.reasons)].map(r => anyLabel(r, product(h.productId))).join(', '), (h.actions || []).map(a => fmtDT(a.at) + ' ' + a.by + ': ' + a.text).join(' | ')])]);
-    const lim = [[t('product'), t('class'), t('parameter'), t('limits'), t('frequency'), t('source')]];
-    products().forEach(p => L.PARAMS.forEach(k => { const m = p.limits[k]; if (m && (L.hasLimits(m) || m.freq !== 'optional')) lim.push([prodName(p.id), p.cls, paramLabel(k, p), limitText(m), t('fr_' + m.freq), m.src || '']); }));
+    const lim = [[t('product'), t('parameter'), t('limits'), t('frequency'), t('source')]];
+    products().forEach(p => L.PARAMS.forEach(k => { const m = p.limits[k]; if (m && (L.hasLimits(m) || m.freq !== 'optional')) lim.push([prodName(p.id), paramLabel(k, p), limitText(m), t('fr_' + m.freq), m.src || '']); }));
     add(t('x_limits'), lim);
     const ch = S.limitChanges.filter(c => c.t >= r.start && c.t < r.end);
     add(t('x_limitChanges'), [[t('dateTime'), t('supervisor'), t('product'), t('parameter'), t('field'), t('oldValue'), t('newValue'), t('reason')],
@@ -553,7 +553,7 @@
     const D = S.limitsDraft.lim;
     const show = L.PARAMS.filter(p => !((p === 'granA' || p === 'granB') && !(prod.limits[p] && prod.limits[p].sieve)));
     return `<section class="card"><h2>${esc(t('qualityLimits'))}</h2>
-      <label class="fld">${esc(t('product'))}<select id="limProd">${products().map(p => `<option value="${esc(p.id)}" ${p.id === pid ? 'selected' : ''}>${esc(prodName(p.id))} (${esc(p.cls)})</option>`).join('')}</select></label>
+      <label class="fld">${esc(t('product'))}<select id="limProd">${products().map(p => `<option value="${esc(p.id)}" ${p.id === pid ? 'selected' : ''}>${esc(prodName(p.id))}</option>`).join('')}</select></label>
       <p class="sub">${esc(t('limitsHelp'))}</p></section>
       ${show.map(p => { const m = D[p] || {}; return `<details class="card lim-ed" ${L.hasLimits(prod.limits[p]) ? 'open' : ''}><summary><b>${esc(paramLabel(p, prod))}</b> <small>${esc(L.UNITS[p])} · ${esc(limitText(prod.limits[p]))}</small></summary>
         <p class="sub">${esc(t('now'))}: ${esc(limitText(prod.limits[p]))}${prod.limits[p].src ? ' · ' + esc(prod.limits[p].src) : ''}</p>

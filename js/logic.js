@@ -13,6 +13,8 @@
   const MILL_TYPES = ['maize', 'wheat', 'rice'];
   const PHYSICAL = ['odour', 'colour'];          // v1.8.0: só odor e cor (cor em escala 1–5, 1 = muito boa, 5 = muito má)
   const COLOUR_SCALE = [1, 2, 3, 4, 5];
+  // Aviso (não rejeita) a partir de este valor da escala da cor. null = sem aviso até Zhax definir o valor.
+  const COLOUR_WARN_FROM = null;
   const FREQS = ['hourly', 'shift', 'optional'];
   const HOUR_MS = 3600000;
 
@@ -33,49 +35,49 @@
 
   function defaultProducts() {
     const P = [];
-    const add = (id, cls, group, lim) => P.push({ id, cls, group, limits: extras(lim) });
-    add('super', 'Super Maize Meal', 'meal', {
+    const add = (id, group, lim) => P.push({ id, group, limits: extras(lim) });
+    add('super', 'meal', {
       moisture: moistureHuman(),
       fat: { hi: 2.0, hiOp: 'lt', hiAct: 'reject', freq: 'hourly', src: SA },
       fibre: { hi: 0.8, hiOp: 'le', hiAct: 'reject', freq: 'shift', src: SA },
       granA: { sieve: '1.40', lo: 90, loOp: 'ge', loAct: 'reject', freq: 'shift', src: SA },
       granB: { sieve: '0.30', hi: 90, hiOp: 'lt', hiAct: 'reject', freq: 'shift', src: SA }
     });
-    add('fuba1', 'Special Maize Meal', 'meal', {
+    add('fuba1', 'meal', {
       moisture: moistureHuman(),
       fat: { lo: 2.0, loOp: 'ge', loAct: 'warn', hi: 3.0, hiOp: 'lt', hiAct: 'reject', freq: 'hourly', src: SA },
       fibre: { hi: 1.2, hiOp: 'le', hiAct: 'reject', freq: 'shift', src: SA },
       granA: { sieve: '1.40', lo: 90, loOp: 'ge', loAct: 'reject', freq: 'shift', src: SA },
       granB: rec('optional')
     });
-    add('fuba2', 'Sifted Maize Meal', 'meal', {
+    add('fuba2', 'meal', {
       moisture: moistureHuman(),
       fat: { lo: 3.0, loOp: 'ge', loAct: 'warn', hi: 4.0, hiOp: 'lt', hiAct: 'reject', freq: 'hourly', src: SA },
       fibre: { hi: 1.2, hiOp: 'le', hiAct: 'reject', freq: 'shift', src: SA },
       granA: { sieve: '1.40', lo: 90, loOp: 'ge', loAct: 'reject', freq: 'shift', src: SA },
       granB: rec('optional')
     });
-    add('integral', 'No.1 Straight-Run Meal', 'meal', {
+    add('integral', 'meal', {
       moisture: moistureHuman(),
       fat: { lo: 3.7, loOp: 'ge', loAct: 'warn', freq: 'hourly', src: SA },
       fibre: { lo: 1.8, loOp: 'ge', loAct: 'warn', hi: 2.5, hiOp: 'le', hiAct: 'reject', freq: 'shift', src: SA },
       granA: { sieve: '2.36', lo: 90, loOp: 'ge', loAct: 'reject', freq: 'shift', src: SA },
       granB: rec('optional')
     });
-    add('animal', 'Hominy Chop', 'feed', {
+    add('animal', 'feed', {
       moisture: { hi: 13, hiOp: 'le', hiAct: 'reject', freq: 'hourly', src: FEED },
       fat: rec('hourly'), fibre: rec('shift'), granA: rec('optional'), granB: rec('optional')
     });
-    const grits = (id, cls, coarse, fine) => add(id, cls, 'grits', {
+    const grits = (id, coarse, fine) => add(id, 'grits', {
       moisture: moistureHuman(),
       fat: { hi: 1.5, hiOp: 'le', hiAct: 'reject', freq: 'hourly', src: SA },
       fibre: { hi: 0.8, hiOp: 'le', hiAct: 'reject', freq: 'shift', src: SA },
       granA: { sieve: coarse, lo: 90, loOp: 'ge', loAct: 'reject', freq: 'hourly', src: SA },
       granB: { sieve: fine, hi: 5, hiOp: 'le', hiAct: 'reject', freq: 'hourly', src: SA }
     });
-    grits('brew_grits', 'Brewing Grits', '4.0', '0.50');
-    grits('snack_grits', 'Snack Grits', '2.0', '0.850');
-    grits('maize_rice', 'Maize Rice', '4.0', '1.18');
+    grits('brew_grits', '4.0', '0.50');
+    grits('snack_grits', '2.0', '0.850');
+    grits('maize_rice', '4.0', '1.18');
     return P;
   }
 
@@ -158,10 +160,13 @@
     });
     if (physAny && PHYSICAL.some(k => !phys[k])) errors.push({ field: 'physical', code: 'incomplete' });
     physAbn.forEach(k => failures.push({ param: k, value: 'abn', decision: 'reject', reason: 'physical' }));
+    const colourWarn = isNum(phys.colour) && COLOUR_WARN_FROM !== null && phys.colour >= COLOUR_WARN_FROM;
+    if (colourWarn) failures.push({ param: 'colour', value: phys.colour, decision: 'warn', reason: 'physical' });
     if (!Object.keys(values).length && !physAny && !errors.length) errors.push({ field: 'all', code: 'empty' });
 
     const ds = Object.values(results).map(r => r.decision);
     if (physAny) ds.push(physAbn.length ? 'reject' : 'accept');
+    if (colourWarn) ds.push('warn');
     let decision = worst(ds) || 'record';
     return { values, results, physical: physAny ? phys : null, decision, errors, failures };
   }
