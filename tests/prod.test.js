@@ -60,6 +60,17 @@ t('stock do silo a partir de eventos da app de Silos', () => {
   assert.strictEqual(P.siloKg('S03', ev), 0);
 });
 
+t('stock: OPENING e ADJUST contam como na app de Silos', () => {
+  const ev = [
+    { silo: 'S09', type: 'OPENING', kg: 4318000, date: '2026-10-22', time: '16:17', seq: 6 },
+    { silo: 'S09', type: 'OUT', kg: 326343, date: '2026-10-22', time: '16:53', seq: 13 },
+    { silo: 'S12', type: 'OPENING', kg: 2767000, date: '2026-10-22', time: '16:17', seq: 7 },
+    { silo: 'S12', type: 'ADJUST', kg: -1000, date: '2026-10-22', time: '17:00', seq: 14 }
+  ];
+  assert.strictEqual(P.siloKg('S09', ev), 3991657);
+  assert.strictEqual(P.siloKg('S12', ev), 2766000);
+});
+
 const T0 = Date.parse('2026-10-08T05:00:00.000Z');
 const silosBackup = {
   app: 'moagem-app', format: 3, exportedAt: '2026-10-08T05:00:00.000Z',
