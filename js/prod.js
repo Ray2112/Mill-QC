@@ -279,6 +279,52 @@
     return { parts, short: Math.max(0, Math.round(rest * 1000) / 1000) };
   }
 
+  // Fila ordenada (v1.6.0): consome os itens do pool pela ordem; cada troca de item fica registada (switches)
+  // e cada item que esvazia fica registado (empties). demands: [{key, kg}]; pool: [{id, avail}].
+  // Não altera os argumentos. Devolve parts [{key, silo, kg}], switches [{key, from, to}], empties [id], short {key: kg}, left {id: kg}.
+  function planQueue(demands, pool) {
+    const order = (pool || []).map(p => p.id);
+    const left = {};
+    (pool || []).forEach(p => { left[p.id] = Math.max(0, Number(p.avail) || 0); });
+    const parts = [], switches = [], empties = [], short = {};
+    let cur = 0, prev = null;
+    (demands || []).forEach(d => {
+      let rest = Math.round((Number(d.kg) || 0) * 1000) / 1000;
+      while (rest > 0 && cur < order.length) {
+        const id = order[cur];
+        if (left[id] <= 0) { cur++; continue; }
+        const take = Math.round(Math.min(rest, left[id]) * 1000) / 1000;
+        if (prev !== null && prev !== id) switches.push({ key: d.key, from: prev, to: id });
+        parts.push({ key: d.key, silo: id, kg: take });
+        left[id] = Math.round((left[id] - take) * 1000) / 1000;
+        rest = Math.round((rest - take) * 1000) / 1000;
+        prev = id;
+        if (left[id] <= 0) { empties.push(id); cur++; }
+      }
+      if (rest > 0) short[d.key] = rest;
+    });
+    return { parts, switches, empties, short, left };
+  }
+  // Alimentação dos silos de milho sujo a partir da fila de silos de cada silo de moagem (deficits: [{bin, deficit}]).
+  // Partilha a disponibilidade entre silos pela ordem dos silos de milho sujo. Só silos de milho designados (cereal da linha).
+  function planFeed(deficits, queues, ctx) {
+    const snap = ctx.snapshot;
+    const cereal = { maize: 'Milho', wheat: 'Trigo', rice: 'Arroz' }[ctx.millType];
+    const avail = {};
+    const okSilo = id => { const s = snap && snap.silos.find(x => x.id === id); return !!s && s.cereal === cereal && (ctx.cfgP.grainSilos || []).indexOf(id) >= 0; };
+    const getAvail = id => { if (!(id in avail)) avail[id] = availableKg(snap, ctx.moves, id) || 0; return avail[id]; };
+    const plans = [];
+    (deficits || []).forEach(d => {
+      const queue = (queues[d.bin] || []).filter(Boolean);
+      const valid = queue.filter(okSilo);
+      const r = planQueue([{ key: d.bin, kg: d.deficit }], valid.map(id => ({ id, avail: getAvail(id) })));
+      Object.keys(r.left).forEach(id => { avail[id] = r.left[id]; });
+      plans.push({ bin: d.bin, parts: r.parts, switches: r.switches, empties: r.empties, short: r.short[d.bin] || 0,
+        queued: queue.length, invalid: queue.filter(id => !okSilo(id)) });
+    });
+    return { plans };
+  }
+
   // ---------- silos de milho sujo (B01–B04) ----------
   // moves: {type:'TRANSFER', binId, t, parts:[{silo, kg, cereal, colour, grade}], kg} | {type:'EMPTY', binId, t, bookKg}
   // Conteúdo = transferências desde o último "vazio" − grão tirado pelas ordens desde então
@@ -503,9 +549,17 @@
           if (okI) imp = Math.round(iw / 100 * 100) / 100;
           if (isNum(kg) && kg > 0) {
             calc.alloc = parts.map(p => ({ bin: p.id, kg: Math.round(kg * p.pct / 100 * 1000) / 1000, pct: p.pct }));
+            // défice por silo de milho sujo → fila de alimentação (silos da fila, pela ordem; troca registada)
+            const deficits = [];
             calc.alloc.forEach(a => {
               const sl = slots.find(x => x.id === a.bin);
-              if (sl && a.kg > sl.avail) E.push({ code: 'blend_short', bin: a.bin, short: Math.round((a.kg - sl.avail) * 1000) / 1000 });
+              const d = sl ? Math.round((a.kg - sl.avail) * 1000) / 1000 : 0;
+              if (d > 0) deficits.push({ bin: a.bin, deficit: d });
+            });
+            calc.feedPlan = deficits.length ? planFeed(deficits, job.feedQueue || {}, ctx).plans : [];
+            calc.feedPlan.forEach(p => {
+              p.invalid.forEach(id => E.push({ code: 'feed_silo_invalid', silo: id }));
+              if (p.short > 0) E.push({ code: 'feed_short', silo: p.bin, bin: p.bin, short: p.short, queued: p.queued });
             });
           }
         }
@@ -536,6 +590,7 @@
       if (isNum(exp)) expTotal += exp;
       if (!o.bins.length) E.push(Object.assign({ code: 'no_bin' }, tag(o)));
       let capKnown = 0, unknownLevel = false, missingCap = false;
+      const poolP = [];                                       // fila de silos de produto (ordem escolhida), capacidade vazia
       o.bins.forEach(id => {
         if (binOwner[id] !== undefined) { E.push({ code: 'bin_dup', bin: id }); return; }
         binOwner[id] = o.productId;
@@ -544,14 +599,17 @@
         if (!r.ok) { E.push(Object.assign({ code: r.why, bin: id, current: r.current }, tag(o))); return; }
         if (!isNum(b.capKg)) missingCap = true;
         else if (r.current) unknownLevel = true;            // já tem o mesmo produto: nível desconhecido
-        else capKnown += b.capKg;
+        else { capKnown += b.capKg; poolP.push({ id, avail: b.capKg }); }
       });
       capTotal += capKnown;
       if (o.bins.length && isNum(exp) && !missingCap) {
         if (!unknownLevel && exp > capKnown) E.push(Object.assign({ code: 'bin_capacity', need: exp, cap: capKnown }, tag(o)));
         else if (unknownLevel && exp > capKnown) W.push(Object.assign({ code: 'bin_level_unknown' }, tag(o)));
       }
-      calc.outputs.push({ productId: o.productId, extraction: idx === 0 && isNum(mainExt) ? mainExt : null, expectedKg: exp, bins: o.bins.slice() });
+      // troca automática entre silos de produto pela ordem da fila (registada); só quando a capacidade é conhecida
+      const pr = isNum(exp) && exp > 0 && !unknownLevel ? planQueue([{ key: o.productId, kg: exp }], poolP) : { parts: [], switches: [], empties: [] };
+      calc.outputs.push({ productId: o.productId, extraction: idx === 0 && isNum(mainExt) ? mainExt : null, expectedKg: exp, bins: o.bins.slice(),
+        binPlan: pr.parts.map(p => ({ bin: p.silo, kg: p.kg })), binSwitches: pr.switches.map(s => ({ from: s.from, to: s.to })) });
     });
     calc.extraction = isNum(mainExt) ? mainExt : null;     // extracção do produto principal
     calc.grainKg = isNum(kg) ? r0(kg) : null;               // grão derivado
@@ -756,7 +814,7 @@
     return okJobs && okBin && okLog;
   }
 
-  const api = { VERSION, COLOURS, SILO_GRADES, GRAIN_SILOS, DEFAULT_DIRTY_BINS, DEFAULT_TEMPERED_BINS, MASTER_SOURCE, dirtyBinState, validateTransfer, crewLeader, leaderNames, transferredAfter, parseSiloList, nonCanonical, DOWNTIME_CODES, DOWNTIME_SOURCE, TIER3, OEE_TREAT, OEE_KEY, mergeCodes, migrateUnits, defaultCodes, findCode, validateCodes, ACT_TYPES, JOB_STATUS, DEFAULT_BINS, BIN_SOURCE,
+  const api = { planQueue, planFeed, VERSION, COLOURS, SILO_GRADES, GRAIN_SILOS, DEFAULT_DIRTY_BINS, DEFAULT_TEMPERED_BINS, MASTER_SOURCE, dirtyBinState, validateTransfer, crewLeader, leaderNames, transferredAfter, parseSiloList, nonCanonical, DOWNTIME_CODES, DOWNTIME_SOURCE, TIER3, OEE_TREAT, OEE_KEY, mergeCodes, migrateUnits, defaultCodes, findCode, validateCodes, ACT_TYPES, JOB_STATUS, DEFAULT_BINS, BIN_SOURCE,
     defaultProdConfig, addFinishedBins, num, waterFor, waterRate, defaultFeedKgh, feedKghOf, siloKg, snapshotFromSilosBackup,
     availableKg, allocate, jobOutputs, jobProducts, recipeSet, OLD_DOWNTIME_SOURCES, dampenerMax, recipeFit, binState, binCheck, validateJob, readingCalc, needsShiftReading, parseBins, binsText,
     validateProdConfig, prodConfigDiff, effectiveLog, validateIssue, validateActivity, shiftSummary, uid, validProdBackup };
