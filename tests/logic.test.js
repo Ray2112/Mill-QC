@@ -94,9 +94,13 @@ t('cor: escala 1–5 registada, sem decisão; odor é o único item que rejeita 
   assert.deepStrictEqual(L.PHYSICAL, ['odour', 'colour']);
   assert.deepStrictEqual(L.COLOUR_SCALE, [1, 2, 3, 4, 5]);
   const r5 = ev('super', {}, { odour: 'ok', colour: 5 });
-  assert.strictEqual(r5.decision, 'accept'); assert.strictEqual(r5.physical.colour, 5);
+  assert.strictEqual(r5.decision, 'warn'); assert.strictEqual(r5.physical.colour, 5);   // cor 5: aviso, não rejeição
   assert.ok(ev('super', {}, { odour: 'ok', colour: 6 }).errors.some(e => e.code === 'incomplete'));
   assert.ok(ev('super', {}, { odour: 'ok', colour: '0' }).errors.some(e => e.code === 'incomplete'));
+  const r3c = ev('super', {}, { odour: 'ok', colour: 3 }); assert.strictEqual(r3c.decision, 'accept');
+  const r4 = ev('super', {}, { odour: 'ok', colour: 4 }); assert.strictEqual(r4.decision, 'warn'); assert.ok(r4.failures.some(f => f.param === 'colour' && f.decision === 'warn'));
+  const r5c = ev('super', {}, { odour: 'ok', colour: 5 }); assert.strictEqual(r5c.decision, 'warn');
+  assert.strictEqual(ev('super', {}, { odour: 'abn', colour: 5 }).decision, 'reject');   // odor abnormal continues to reject
   assert.ok(ev('super', {}, { odour: 'ok', colour: '3' }).errors.length === 0);   // texto numérico aceite
 });
 t('físico: tudo OK aceita; anormal rejeita; incompleto = erro', () => {

@@ -13,8 +13,8 @@
   const MILL_TYPES = ['maize', 'wheat', 'rice'];
   const PHYSICAL = ['odour', 'colour'];          // v1.8.0: só odor e cor (cor em escala 1–5, 1 = muito boa, 5 = muito má)
   const COLOUR_SCALE = [1, 2, 3, 4, 5];
-  // Aviso (não rejeita) a partir de este valor da escala da cor. null = sem aviso até Zhax definir o valor.
-  const COLOUR_WARN_FROM = null;
+  // Aviso (não rejeita) a partir deste valor da escala da cor (4 e 5). Zhax, 22-10-2026.
+  const COLOUR_WARN_FROM = 4;
   const FREQS = ['hourly', 'shift', 'optional'];
   const HOUR_MS = 3600000;
 
