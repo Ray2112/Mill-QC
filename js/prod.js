@@ -228,7 +228,10 @@
       const k = num(e.kg, 'kg');
       const v = isNum(k) ? k : 0;
       if (e.type === 'EMPTY' && e.silo === siloId) { kg = 0; return; }
-      if (e.type === 'IN' || (e.type === 'TRANSFER' && e.toSilo === siloId && e.silo !== siloId)) kg += v;
+      // ADJUST = correção de stock com sinal (como na app de Silos; não altera lotes)
+      if (e.type === 'ADJUST') { if (e.silo === siloId) kg += v; return; }
+      // OPENING = quantidade inicial (stock existente antes de começar a registar; como na app de Silos)
+      if (e.type === 'IN' || e.type === 'OPENING' || (e.type === 'TRANSFER' && e.toSilo === siloId && e.silo !== siloId)) kg += v;
       else if (e.type === 'OUT' || (e.type === 'TRANSFER' && e.silo === siloId && e.toSilo !== siloId)) kg -= v;
     });
     return Math.round(kg * 1000) / 1000;
