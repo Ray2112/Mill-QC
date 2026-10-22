@@ -1,6 +1,6 @@
 {
-  "name": "Moagem — Controlo de Qualidade",
-  "short_name": "Moagem CQ",
+  "name": "Mill Mgt-App",
+  "short_name": "Mill Mgt-App",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
