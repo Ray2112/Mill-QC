@@ -363,12 +363,56 @@ t('mistura: percentagens, humidade ponderada, stock por silo de moagem', () => {
   j.blend.B01.pct = '70';
   assert.ok(P.validateJob(j, ctx()).errors.some(e => e.code === 'blend_sum' && e.sum === 130));
   j.blend.B02.pct = '30';
-  const sh = P.validateJob(j, ctx()).errors.find(e => e.code === 'blend_short');
+  const sh = P.validateJob(j, ctx()).errors.find(e => e.code === 'feed_short');
   assert.ok(sh); assert.strictEqual(sh.bin, 'B01'); assert.strictEqual(sh.short, 10000);
   j.blend.B02.m0 = 'x';
   assert.ok(codes(P.validateJob(j, ctx())).includes('blend_m0'));
   j.blend.B02 = { pct: '', m0: '14', impurities: '1' };
   assert.ok(codes(P.validateJob(j, ctx())).includes('blend_pct'));
+});
+
+t('fila de alimentação: défice do silo de milho sujo coberto pela fila', () => {
+  const snapCtx = () => ctx({ snapshot: P.snapshotFromSilosBackup(silosBackup, T0 + 3600000), millType: 'maize' });
+  const j = baseJob(); j.mode = 'blend'; j.m0 = ''; j.impurities = '';
+  j.blend = { B01: { pct: '70', m0: '12', impurities: '1' }, B02: { pct: '30', m0: '14', impurities: '2' } };
+  // B01 precisa de 70 000 kg e tem 60 000 kg → défice 10 000 kg
+  assert.ok(codes(P.validateJob(j, snapCtx())).includes('feed_short'));
+  j.feedQueue = { B01: ['S05'] };
+  const r = P.validateJob(j, snapCtx());
+  assert.deepStrictEqual(codes(r), []);
+  assert.deepStrictEqual(r.calc.feedPlan[0].parts, [{ key: 'B01', silo: 'S05', kg: 10000 }]);
+  assert.deepStrictEqual(r.calc.feedPlan[0].switches, []);
+  // fila com silo de cereal errado: erro explícito, não usado
+  j.feedQueue = { B01: ['S06'] };
+  const bad = codes(P.validateJob(j, snapCtx()));
+  assert.ok(bad.includes('feed_silo_invalid')); assert.ok(bad.includes('feed_short'));
+});
+
+t('planQueue: troca de silo registada e défice', () => {
+  const r = P.planQueue([{ key: 'B01', kg: 150 }], [{ id: 'A', avail: 100 }, { id: 'B', avail: 100 }]);
+  assert.deepStrictEqual(r.parts, [{ key: 'B01', silo: 'A', kg: 100 }, { key: 'B01', silo: 'B', kg: 50 }]);
+  assert.deepStrictEqual(r.switches, [{ key: 'B01', from: 'A', to: 'B' }]);
+  assert.deepStrictEqual(r.empties, ['A']);
+  assert.deepStrictEqual(r.short, {});
+  const s = P.planQueue([{ key: 'X', kg: 300 }], [{ id: 'A', avail: 100 }]);
+  assert.deepStrictEqual(s.short, { X: 200 });
+  // dois silos de milho sujo a partilhar o mesmo silo de moagem
+  const snap = P.snapshotFromSilosBackup(silosBackup, T0);
+  const f = P.planFeed([{ bin: 'B01', deficit: 60000 }, { bin: 'B02', deficit: 60000 }],
+    { B01: ['S05'], B02: ['S05'] }, { snapshot: snap, moves: [], cfgP: P.defaultProdConfig(), millType: 'maize' });
+  assert.strictEqual(f.plans[0].parts[0].kg, 60000);
+  assert.strictEqual(f.plans[1].short, 20000);
+});
+
+t('produto: troca entre silos de produto registada no plano', () => {
+  const j = baseJob();
+  const r = P.validateJob(j, ctx());
+  const o = r.calc.outputs[0];
+  assert.ok(Array.isArray(o.binPlan) && Array.isArray(o.binSwitches));
+  if (!r.errors.some(e => e.code === 'bin_capacity')) {
+    const sum = o.binPlan.reduce((a, p) => a + p.kg, 0);
+    assert.strictEqual(Math.round(sum * 1000) / 1000, o.expectedKg);
+  }
 });
 
 t('cor/grau fora da receita da ordem: registado como aviso, não bloqueia (opção 2, 09-10-2026)', () => {
