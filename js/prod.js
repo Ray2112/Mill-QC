@@ -110,6 +110,14 @@
     });
     return { cfg: out, changed: true };
   }
+  // v1.8.0: acrescenta B09 e B10 a configurações já gravadas (idempotente)
+  function addFinishedBins(c) {
+    if (!c || !Array.isArray(c.bins)) return { cfg: c, changed: false };
+    const have = new Set(c.bins.map(b => b.id));
+    const add = [['B09', 55000], ['B10', 55000]].filter(([id]) => !have.has(id)).map(([id, cap]) => ({ id, lines: ['C', 'D'], capKg: cap }));
+    if (!add.length) return { cfg: c, changed: false };
+    return { cfg: Object.assign({}, c, { bins: c.bins.concat(add) }), changed: true };
+  }
   const defaultCodes = () => DOWNTIME_CODES.map(c => Object.assign({}, c));
   const findCode = (c, list) => (list || DOWNTIME_CODES).find(x => x.code === c) || null;
   const ACT_TYPES = ['housekeeping', 'reprocessing', 'cleaning', 'maintenance', 'other'];
@@ -127,7 +135,8 @@
   const DEFAULT_TEMPERED_BINS = mk([['B05', 'C', 95000], ['B06', 'C', 95000], ['B07', 'D', 55000], ['B08', 'D', 55000]]);
   const DEFAULT_BINS = mk([
     ['B34', 'CD', 60000], ['B35', 'CD', 60000], ['B40', 'C', 188000], ['B43', 'D', 188000],
-    ['B44', 'C', 188000], ['B45', 'C', 188000], ['B46', 'C', 188000], ['B47', 'C', 145000]
+    ['B44', 'C', 188000], ['B45', 'C', 188000], ['B46', 'C', 188000], ['B47', 'C', 145000],
+    ['B09', 'CD', 55000], ['B10', 'CD', 55000]          // v1.8.0: silos de produto acabado, 55 t cada, alimentados pelas linhas C e D (Zhax, 22-10-2026)
   ]);
   const copyBins = l => l.map(b => ({ id: b.id, lines: b.lines.slice(), capKg: b.capKg }));
 
@@ -745,7 +754,7 @@
   }
 
   const api = { VERSION, COLOURS, SILO_GRADES, GRAIN_SILOS, DEFAULT_DIRTY_BINS, DEFAULT_TEMPERED_BINS, MASTER_SOURCE, dirtyBinState, validateTransfer, crewLeader, leaderNames, transferredAfter, parseSiloList, nonCanonical, DOWNTIME_CODES, DOWNTIME_SOURCE, TIER3, OEE_TREAT, OEE_KEY, mergeCodes, migrateUnits, defaultCodes, findCode, validateCodes, ACT_TYPES, JOB_STATUS, DEFAULT_BINS, BIN_SOURCE,
-    defaultProdConfig, num, waterFor, waterRate, defaultFeedKgh, feedKghOf, siloKg, snapshotFromSilosBackup,
+    defaultProdConfig, addFinishedBins, num, waterFor, waterRate, defaultFeedKgh, feedKghOf, siloKg, snapshotFromSilosBackup,
     availableKg, allocate, jobOutputs, jobProducts, recipeSet, OLD_DOWNTIME_SOURCES, dampenerMax, recipeFit, binState, binCheck, validateJob, readingCalc, needsShiftReading, parseBins, binsText,
     validateProdConfig, prodConfigDiff, effectiveLog, validateIssue, validateActivity, shiftSummary, uid, validProdBackup };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

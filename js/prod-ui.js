@@ -40,6 +40,8 @@ window.ProdUI = function (C) {
     // unidades: toneladas → kg (uma vez; idempotente)
     const u = P.migrateUnits(S.cfgP);
     if (u.changed) { S.cfgP = u.cfg; migrated = true; }
+    // silos de produto B09 e B10 (v1.8.0)
+    const fb = P.addFinishedBins(S.cfgP); if (fb.changed) { S.cfgP = fb.cfg; migrated = true; }
     if (migrated) { try { await DB.setConfig('cfgP', S.cfgP); } catch (e) { /* tenta de novo na próxima abertura */ } }
     S.ctx = Object.assign({ operatorId: '', testMode: false }, (await DB.getConfig('ctx')) || {});
     applyCtx();

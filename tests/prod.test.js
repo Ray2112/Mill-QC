@@ -36,9 +36,13 @@ t('dados mestre: S01–S21; B01–B04 sujo 130 000 kg (C/D); B05–B06 temperado
   assert.deepStrictEqual(c.dirtyBins, ['B01', 'B02', 'B03', 'B04'].map(id => ({ id, lines: ['C', 'D'], capKg: 130000 })));
   assert.deepStrictEqual(c.temperedBins, [{ id: 'B05', lines: ['C'], capKg: 95000 }, { id: 'B06', lines: ['C'], capKg: 95000 },
     { id: 'B07', lines: ['D'], capKg: 55000 }, { id: 'B08', lines: ['D'], capKg: 55000 }]);
-  assert.deepStrictEqual(c.bins.map(b => b.id), ['B34', 'B35', 'B40', 'B43', 'B44', 'B45', 'B46', 'B47']);
-  assert.deepStrictEqual(c.bins.filter(b => b.lines.includes('D')).map(b => b.id), ['B34', 'B35', 'B43']);
-  assert.deepStrictEqual(c.bins.map(b => b.capKg), [60000, 60000, 188000, 188000, 188000, 188000, 188000, 145000]);
+  assert.deepStrictEqual(c.bins.map(b => b.id), ['B34', 'B35', 'B40', 'B43', 'B44', 'B45', 'B46', 'B47', 'B09', 'B10']);
+  assert.deepStrictEqual(c.bins.filter(b => b.id === 'B09' || b.id === 'B10').map(b => [b.lines, b.capKg]), [[['C', 'D'], 55000], [['C', 'D'], 55000]]);
+  assert.deepStrictEqual(c.bins.filter(b => b.lines.includes('D')).map(b => b.id), ['B34', 'B35', 'B43', 'B09', 'B10']);
+  assert.deepStrictEqual(c.bins.map(b => b.capKg), [60000, 60000, 188000, 188000, 188000, 188000, 188000, 145000, 55000, 55000]);
+  const legacyBins = { bins: [{ id: 'B34', lines: ['C', 'D'], capKg: 60000 }] };
+  const fb1 = P.addFinishedBins(legacyBins); assert.strictEqual(fb1.changed, true); assert.deepStrictEqual(fb1.cfg.bins.map(b => b.id), ['B34', 'B09', 'B10']);
+  assert.strictEqual(P.addFinishedBins(fb1.cfg).changed, false);   // idempotente
   assert.deepStrictEqual(c.extraction, {}); assert.deepStrictEqual(c.recipes, {});
   assert.deepStrictEqual(P.validateProdConfig(c), []);
 });
