@@ -2,8 +2,8 @@
 // A app key é um identificador público (não é segredo). Não colocar aqui nenhum app secret.
 (function (root) {
   const DROPBOX = {
-    appKey: '0fvmydayvnknuu2',           // App key da app "Moagem-Carrinho" (escopo: pasta da app)
-    binsStatusPath: '/Carrinho/Moagem/bins-status.json',   // P3 aprovado (ajustar se a pasta da app for outra)
+    appKey: '0fvmydayvnknuu2',           // App key da app Mill-CD (Scoped App, App Folder). Estado: Development; só o titular.
+    binsStatusPath: '/bins-status.json',   // relativo à pasta da app: /Apps/Mill-CD/ (app de escopo App Folder, nome Mill-CD)
     freshnessHours: 2                    // P1 aprovado
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = DROPBOX;
