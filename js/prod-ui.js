@@ -22,6 +22,7 @@ window.ProdUI = function (C) {
 
   // ---------- dados ----------
   async function load() {
+    dropboxReturn();
     S.cfgP = (await DB.getConfig('cfgP')) || P.defaultProdConfig();
     // configuração anterior à v1.3: acrescenta os dados mestre em falta (não altera listas já existentes)
     const d = P.defaultProdConfig();
@@ -77,17 +78,67 @@ window.ProdUI = function (C) {
       sendBinsStatus(out);
     } catch (e) { console.warn('bins-status', e); }
   }
-  // Envio para o Dropbox (só se houver sessão guardada; sem sessão, fica só a cópia local).
-  // Sessão: {accessToken, expiresAt} em localStorage 'mill-qc.dropbox'. Renovação e início de sessão ainda por fazer.
-  function sendBinsStatus(out) {
-    if (!window.DropboxUpload || !window.DropboxConfig) return;
-    let sess = null;
-    try { sess = JSON.parse(localStorage.getItem('mill-qc.dropbox') || 'null'); } catch (e) { sess = null; }
-    if (!sess || !sess.accessToken || !(sess.expiresAt > Date.now())) return;
-    const req = window.DropboxUpload.buildUploadRequest({ accessToken: sess.accessToken, path: window.DropboxConfig.binsStatusPath, content: JSON.stringify(out) });
-    fetch(req.url, { method: req.method, headers: req.headers, body: req.body })
-      .then(r => { if (!r.ok) console.warn('bins-status upload', r.status); })
-      .catch(e => console.warn('bins-status upload', e));
+  // ---- Dropbox: início de sessão (PKCE), renovação e envio do bins-status ----
+  // Sessão guardada neste dispositivo em localStorage 'mill-qc.dropbox' = {accessToken, expiresAt, refreshToken}.
+  // O refresh token fica no navegador: aceitável para os testes no portátil; a decidir antes de usar nos telemóveis.
+  const DB_SESS_KEY = 'mill-qc.dropbox', DB_STATE_KEY = 'mill-qc.dbstate.v1';
+  const dbAuth = () => window.DropboxAuth, dbCfg = () => window.DropboxConfig;
+  const dbSess = () => { try { return JSON.parse(localStorage.getItem(DB_SESS_KEY) || 'null'); } catch (e) { return null; } };
+  function dbSave(s) { try { localStorage.setItem(DB_SESS_KEY, JSON.stringify(s)); } catch (e) { console.warn('dropbox save', e); } }
+  const dbRedirect = () => location.origin + location.pathname;
+  async function dropboxSignIn() {
+    const A = dbAuth(), c = dbCfg();
+    if (!A || !c) return C.toast('Dropbox: módulo em falta.');
+    const getRandom = b => crypto.getRandomValues(b);
+    const verifier = A.randomToken(getRandom), state = A.randomToken(getRandom);
+    sessionStorage.setItem(DB_STATE_KEY, JSON.stringify({ verifier, state }));
+    const challenge = await A.challengeOf(verifier, d => crypto.subtle.digest('SHA-256', d));
+    location.href = A.buildAuthorizeUrl({ appKey: c.appKey, redirectUri: dbRedirect(), challenge, state });
+  }
+  // Ao voltar do Dropbox (?code=...): troca o código por tokens e limpa o endereço.
+  async function dropboxReturn() {
+    const A = dbAuth(), c = dbCfg();
+    const p = new URLSearchParams(location.search);
+    if (!A || !c || !p.get('code') && !p.get('error')) return;
+    let st = null;
+    try { st = JSON.parse(sessionStorage.getItem(DB_STATE_KEY) || 'null'); } catch (e) { st = null; }
+    sessionStorage.removeItem(DB_STATE_KEY);
+    history.replaceState(null, '', location.pathname);
+    if (p.get('error')) return C.toast('Dropbox: ligação cancelada (' + p.get('error') + ').');
+    if (!st || st.state !== p.get('state')) return C.toast('Dropbox: resposta não confere. Tente ligar de novo.');
+    try {
+      const req = A.buildTokenRequest({ appKey: c.appKey, code: p.get('code'), verifier: st.verifier, redirectUri: dbRedirect() });
+      const r = await fetch(req.url, { method: req.method, headers: req.headers, body: req.body });
+      const json = await r.json().catch(() => null);
+      if (!r.ok) return C.toast('Dropbox recusou o código (' + r.status + ').');
+      dbSave(A.parseTokenResponse(json, Date.now()));
+      C.toast('Dropbox ligado.');
+    } catch (e) { C.toast('Dropbox: falha de rede ao ligar.'); console.warn('dropbox token', e); }
+  }
+  function dropboxSignOut() { try { localStorage.removeItem(DB_SESS_KEY); } catch (e) { /* ignorar */ } C.toast('Dropbox desligado neste dispositivo.'); }
+  // Devolve um access token válido, renovando se preciso. null se não houver sessão.
+  async function dropboxToken() {
+    const A = dbAuth(), c = dbCfg(), sess = dbSess();
+    if (!A || !c || !sess || !sess.refreshToken) return null;
+    if (A.isUsable(sess, Date.now())) return sess.accessToken;
+    const req = A.buildRefreshRequest({ appKey: c.appKey, refreshToken: sess.refreshToken });
+    const r = await fetch(req.url, { method: req.method, headers: req.headers, body: req.body });
+    if (!r.ok) throw new Error('renovação recusada (' + r.status + ')');
+    const next = Object.assign({}, sess, A.parseTokenResponse(await r.json(), Date.now()));
+    if (!next.refreshToken) next.refreshToken = sess.refreshToken;
+    dbSave(next);
+    return next.accessToken;
+  }
+  // Envio do bins-status (após cada gravação). Sem sessão, não envia; falhas só ficam no console.
+  async function sendBinsStatus(out) {
+    if (!window.DropboxUpload || !dbCfg() || !dbSess()) return;
+    try {
+      const tok = await dropboxToken();
+      if (!tok) return;
+      const req = window.DropboxUpload.buildUploadRequest({ accessToken: tok, path: dbCfg().binsStatusPath, content: JSON.stringify(out) });
+      const r = await fetch(req.url, { method: req.method, headers: req.headers, body: req.body });
+      if (!r.ok) console.warn('bins-status upload', r.status);
+    } catch (e) { console.warn('bins-status upload', e); }
   }
   let seq = 0;
   // UUID v4 por registo (o dispositivo vai em deviceId); recurso antigo se randomUUID não existir
@@ -771,6 +822,9 @@ window.ProdUI = function (C) {
     return ctxCard + `<section class="card"><h3>${esc(t('prodSettings'))}</h3>
       <p class="sub">${esc(t('prodSettingsSummary', { c: lineIds().map(id => id + ' ' + fmtKg(c.lineKgDay[id]) + ' kg/d').join(' · '), d: lineIds().map(id => id + ' ' + fmtKg(P.dampenerMax(c, id))).join(' · '), b: c.bins.length }))}</p>
       <button class="btn" data-nav="prodset">${esc(t('editProdSettings'))}</button></section>
+      <section class="card"><h3>Dropbox (saldos das bins)</h3>
+      <p class="sub">${dbSess() && dbSess().refreshToken ? 'Ligado neste dispositivo. O bins-status.json é enviado após cada gravação.' : 'Não ligado. Sem ligação, o ficheiro não é enviado (a cópia local continua a ser guardada).'}</p>
+      <button class="btn" data-pact="dbsignin">Ligar ao Dropbox</button> <button class="btn ghost" data-pact="dbsignout">Desligar</button></section>
       <section class="card"><h3>${esc(t('codesTitle'))}</h3>
       <p class="sub">${esc(t('codesSummary', { n: codes().filter(c => c.active !== false).length, s: S.cfgP.codesSource || '', pt: codes().filter(c => c.namePt).length, o: codes().filter(c => c.oee).length }))}</p>
       <button class="btn" data-nav="codes">${esc(t('editCodes'))}</button></section>`;
@@ -939,6 +993,8 @@ window.ProdUI = function (C) {
       case 'setbin': return binAction('set');
       case 'cancelba': S.binAct = null; keepScroll(); return;
       case 'saveprodset': return saveProdSet();
+      case 'dbsignin': return dropboxSignIn();
+      case 'dbsignout': dropboxSignOut(); keepScroll(); return;
       case 'savecodes': return saveCodes();
       case 'savereading': return saveReading(el.dataset.uid);
     }
