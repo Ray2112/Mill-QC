@@ -1,4 +1,7 @@
-# Moagem — Controlo de Qualidade (auto-controlo) + Produção · v1.7.0
+# Moagem — Controlo de Qualidade (auto-controlo) + Produção · v2.0.0
+
+> **v2.0.0 (23-10-2026) — ligação ao Dropbox para a Mill-App.** Definições → "Ligar ao Dropbox" (uma vez por dispositivo). Depois de cada gravação, a app envia o `bins-status.json` (saldo e transferências de cada silo de milho sujo desde o último vazio) para `/Apps/Mill-CD/`. A Mill-App lê este ficheiro para verificar as descargas e conciliar silo a silo (tolerância 0 kg). Sem ligação, nada é enviado e a cópia local continua a ser guardada. A chave secreta da app Dropbox não está no código.
+> - Correcção: a lista de silos de milho sujo na transferência mostrava a capacidade 1000 vezes maior.
 
 > **v1.7.0 (15-10-2026) — união das alterações de 1.5.0 e contrato v1 com a v1.6.0.** Quantidades em kg (migração única de t para kg), 61 códigos de paragem do ficheiro `2026-09-30_FMO_Downtime_Codes_v2.xlsx` com Tier 3 e tratamento OEE, registos com `uid`, `deviceId`, `createdAt` e turno. A turma passa a ser **derivada da data e hora** pela rotação de 8 turnos (ancora 14-10-2026 07:00 = C; ciclo C B A C D A B D), já não é escolhida no ecrã.
 
@@ -107,6 +110,9 @@ JS simples, sem compilação. `js/logic.js` regras puras (testes: `node tests/lo
 ## English
 
 Offline PWA for in-process quality control (auto-control) on the mill lines. Separate from the Silos app (`Mill-App`): its own repo, address, database (`moagem-cq`) and cache.
+
+> **v2.0.0 (23-10-2026) — Dropbox link for Mill-App.** Settings → "Ligar ao Dropbox" (once per device). After each save, the app sends `bins-status.json` (balance and transfers of each dirty maize bin since it was last emptied) to `/Apps/Mill-CD/`. Mill-App reads this file to check discharges and reconcile silo by silo (0 kg tolerance). Without the link nothing is sent and the local copy is still kept. The Dropbox app secret is not in the code.
+> - Fix: the dirty maize bin list in the transfer form showed the capacity 1000 times too large.
 
 - **Mill type:** Maize (configured) · Wheat and Rice (no products/limits yet).
 - **Crew A/B/C/D** derived from date and time by the 8-slot rotation (anchor 2026-10-14 07:00 = C); not chosen. **Day 07–19 / Night 19–07** set from the clock.

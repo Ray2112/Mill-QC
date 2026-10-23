@@ -12,7 +12,7 @@
 (function (root) {
   'use strict';
 
-  const VERSION = '1.8.0';
+  const VERSION = '2.0.0';
   const COLOURS = ['Amarelo', 'Branco'];
   const SILO_GRADES = ['G1', 'G2', 'OFF', 'PRI'];          // designações da app de Silos (REJ nunca vai a moagem)
   // Códigos de paragem FMO — fonte: 2026-09-30_FMO_Downtime_Codes_v2.xlsx (folha Folha1), autorizado por Zhax (14-10-2026).

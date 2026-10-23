@@ -224,7 +224,7 @@ window.ProdUI = function (C) {
         <small>${esc(s.cereal)} ${esc(s.colour)} · ${esc(gradeName(s.grade))} · ${fmtKg(P.availableKg(sn, S.moves, s.id))} kg</small>${chip}</button>`;
     }).join('') : `<p class="sub">${esc(t('snapNone'))}</p>`;
     return `<section class="card"><h2>${esc(t('newTransfer'))}</h2>
-      <div class="grid2"><label class="fld req">${esc(t('dirtyBin'))}<select data-trf="binId"><option value="">—</option>${(S.cfgP.dirtyBins || []).map(b => { const st = dirtyState(b.id); return `<option value="${esc(b.id)}" ${f.binId === b.id ? 'selected' : ''}>${esc(b.id)} · ${fmtKg(st.kg)} / ${isNum(b.capKg) ? fmtKg(b.capKg * 1000) : '?'} kg</option>`; }).join('')}</select></label>
+      <div class="grid2"><label class="fld req">${esc(t('dirtyBin'))}<select data-trf="binId"><option value="">—</option>${(S.cfgP.dirtyBins || []).map(b => { const st = dirtyState(b.id); return `<option value="${esc(b.id)}" ${f.binId === b.id ? 'selected' : ''}>${esc(b.id)} · ${fmtKg(st.kg)} / ${isNum(b.capKg) ? fmtKg(b.capKg) : '?'} kg</option>`; }).join('')}</select></label>
         <label class="fld req">${esc(t('qtyKg'))}<input inputmode="decimal" data-tri="kg" value="${esc(f.kg)}"></label></div>
       <p class="sub">${esc(t('silosOrder'))}</p><div class="picks">${siloRows}</div>
       <label class="chk"><input type="checkbox" data-trf="silosConfirmed" ${f.silosConfirmed ? 'checked' : ''}> ${esc(t('confirmSilos'))}</label>
