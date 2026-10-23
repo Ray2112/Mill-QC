@@ -74,7 +74,20 @@ window.ProdUI = function (C) {
       const out = P.buildBinsStatus(S.cfgP, S.moves, S.jobs, { now: Date.now(), writerVersion: P.VERSION, site: S.cfgP.site || '' });
       S.binsStatus = out;
       localStorage.setItem(BINS_STATUS_KEY, JSON.stringify(out));
+      sendBinsStatus(out);
     } catch (e) { console.warn('bins-status', e); }
+  }
+  // Envio para o Dropbox (só se houver sessão guardada; sem sessão, fica só a cópia local).
+  // Sessão: {accessToken, expiresAt} em localStorage 'mill-qc.dropbox'. Renovação e início de sessão ainda por fazer.
+  function sendBinsStatus(out) {
+    if (!window.DropboxUpload || !window.DropboxConfig) return;
+    let sess = null;
+    try { sess = JSON.parse(localStorage.getItem('mill-qc.dropbox') || 'null'); } catch (e) { sess = null; }
+    if (!sess || !sess.accessToken || !(sess.expiresAt > Date.now())) return;
+    const req = window.DropboxUpload.buildUploadRequest({ accessToken: sess.accessToken, path: window.DropboxConfig.binsStatusPath, content: JSON.stringify(out) });
+    fetch(req.url, { method: req.method, headers: req.headers, body: req.body })
+      .then(r => { if (!r.ok) console.warn('bins-status upload', r.status); })
+      .catch(e => console.warn('bins-status upload', e));
   }
   let seq = 0;
   // UUID v4 por registo (o dispositivo vai em deviceId); recurso antigo se randomUUID não existir
