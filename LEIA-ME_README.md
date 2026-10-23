@@ -1,4 +1,6 @@
-# Moagem — Controlo de Qualidade (auto-controlo) + Produção · v2.0.0
+# Moagem — Controlo de Qualidade (auto-controlo) + Produção · v2.1.0
+
+> **v2.1.0 (23-10-2026) — registos diários para o Dropbox (FMIP).** Com o Dropbox ligado, depois de cada gravação (espera de 5 s) a app envia um ficheiro por dia de produção (07:00–07:00) para `/Apps/Mill-CD/records/AAAA-MM-DD_FMO_MillQC.json`, com todos os registos desse dia (amostras, retenções, alertas, alterações de limites, relatórios, ordens, eventos das bins, diário de turno, snapshots, alterações de produção, transferências de grão) e um manifesto (contagens por loja, incluindo zeros, e por turno). Os registos em modo de teste vão para `/records-test/`. Só são enviados os dias que mudaram; um envio falhado fica pendente e é repetido na gravação seguinte, ao abrir a app ou com "Enviar agora" (Definições). O estado do último envio e as falhas aparecem em Definições. O PIN e a configuração local nunca são enviados.
 
 > **v2.0.0 (23-10-2026) — ligação ao Dropbox para a Mill-App.** Definições → "Ligar ao Dropbox" (uma vez por dispositivo). Depois de cada gravação, a app envia o `bins-status.json` (saldo e transferências de cada silo de milho sujo desde o último vazio) para `/Apps/Mill-CD/`. A Mill-App lê este ficheiro para verificar as descargas e conciliar silo a silo (tolerância 0 kg). Sem ligação, nada é enviado e a cópia local continua a ser guardada. A chave secreta da app Dropbox não está no código.
 > - Correcção: a lista de silos de milho sujo na transferência mostrava a capacidade 1000 vezes maior.
@@ -110,6 +112,8 @@ JS simples, sem compilação. `js/logic.js` regras puras (testes: `node tests/lo
 ## English
 
 Offline PWA for in-process quality control (auto-control) on the mill lines. Separate from the Silos app (`Mill-App`): its own repo, address, database (`moagem-cq`) and cache.
+
+> **v2.1.0 (23-10-2026) — daily records to Dropbox (FMIP).** With Dropbox linked, after each save (5 s wait) the app uploads one file per production day (07:00–07:00) to `/Apps/Mill-CD/records/AAAA-MM-DD_FMO_MillQC.json`, holding every record of that day (samples, holds, alerts, limit changes, reports, jobs, bin events, shift log, snapshots, production changes, grain moves) and a manifest (counts per store, zeros included, and per shift). Test-mode records go to `/records-test/`. Only changed days are uploaded; a failed upload stays pending and retries on the next save, on opening the app, or with "Enviar agora" (Settings). Settings shows the last upload and any failure. The PIN and local configuration are never uploaded.
 
 > **v2.0.0 (23-10-2026) — Dropbox link for Mill-App.** Settings → "Ligar ao Dropbox" (once per device). After each save, the app sends `bins-status.json` (balance and transfers of each dirty maize bin since it was last emptied) to `/Apps/Mill-CD/`. Mill-App reads this file to check discharges and reconcile silo by silo (0 kg tolerance). Without the link nothing is sent and the local copy is still kept. The Dropbox app secret is not in the code.
 > - Fix: the dirty maize bin list in the transfer form showed the capacity 1000 times too large.

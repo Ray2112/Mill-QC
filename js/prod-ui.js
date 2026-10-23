@@ -47,6 +47,7 @@ window.ProdUI = function (C) {
     S.ctx = Object.assign({ operatorId: '', testMode: false }, (await DB.getConfig('ctx')) || {});
     applyCtx();
     await reload();
+    scheduleDaySync();   // envia pendentes de sessões anteriores
   }
   // Operador e modo de teste (deste dispositivo) vão para todos os registos novos (contrato v1)
   function applyCtx() {
@@ -139,6 +140,64 @@ window.ProdUI = function (C) {
       const r = await fetch(req.url, { method: req.method, headers: req.headers, body: req.body });
       if (!r.ok) console.warn('bins-status upload', r.status);
     } catch (e) { console.warn('bins-status upload', e); }
+  }
+  // ---- Dropbox: ficheiros diários de registos (v2.1.0) ----
+  // Após cada gravação (com espera), envia os dias cujo conteúdo mudou desde o último envio confirmado.
+  // Um envio falhado fica pendente e é repetido na gravação seguinte, ao abrir a app ou com "Enviar agora".
+  const DAY_SENT_KEY = 'mill-qc.daySent.v1', DAY_STATUS_KEY = 'mill-qc.daySync.v1';
+  const lsGet = (k, d) => { try { return JSON.parse(localStorage.getItem(k) || 'null') || d; } catch (e) { return d; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { console.warn('localStorage', e); } };
+  const dayStatus = () => lsGet(DAY_STATUS_KEY, {});
+  let dayTimer = null, daySyncing = false, dayAgain = false;
+  function scheduleDaySync() {
+    if (!window.DayRecords || !dbCfg() || !dbSess()) return;
+    clearTimeout(dayTimer);
+    dayTimer = setTimeout(syncDays, dbCfg().recordsDebounceMs || 5000);
+  }
+  async function syncDays(manual) {
+    const R = window.DayRecords, c = dbCfg();
+    if (!R || !c || !window.DropboxUpload) return;
+    if (!dbSess()) { if (manual) C.toast('Dropbox: não ligado neste dispositivo.'); return; }
+    if (daySyncing) { dayAgain = true; return; }
+    daySyncing = true;
+    const st = dayStatus(), sent = lsGet(DAY_SENT_KEY, {});
+    let ok = 0, failed = 0, lastErr = null, undated = 0;
+    try {
+      const data = await DB.exportAll();
+      const tok = await dropboxToken();
+      if (!tok) throw new Error('sem sessão');
+      for (const test of [false, true]) {
+        const dir = test ? c.recordsTestDir : c.recordsDir;
+        const built = R.buildDayFiles(data, { prodDayOf: L.prodDay, test, now: Date.now(), writerVersion: P.VERSION, deviceId: S.deviceId, site: (S.cfgP && S.cfgP.site) || '', codesSource: (S.cfgP && S.cfgP.codesSource) || null });
+        if (!test) undated = Object.keys(built.undated).reduce((s, k) => s + built.undated[k], 0);
+        for (const day of R.pendingDays(built, dir, sent)) {
+          const path = R.dayPath(dir, day), f = built.files[day];
+          try {
+            const req = window.DropboxUpload.buildUploadRequest({ accessToken: tok, path, content: JSON.stringify(f.file) });
+            const r = await fetch(req.url, { method: req.method, headers: req.headers, body: req.body });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            sent[path] = f.hash; ok++;
+          } catch (e) { failed++; lastErr = day + ': ' + (e && e.message || e); console.warn('day upload', day, e); }
+        }
+      }
+    } catch (e) { failed++; lastErr = String(e && e.message || e); console.warn('day sync', e); }
+    lsSet(DAY_SENT_KEY, sent);
+    const t0 = new Date().toISOString();
+    lsSet(DAY_STATUS_KEY, { lastTryAt: t0, lastOkAt: failed ? (st.lastOkAt || null) : t0, sentNow: ok, failed, lastError: failed ? lastErr : null, undated });
+    daySyncing = false;
+    if (manual) C.toast(failed ? 'Dropbox: ' + failed + ' envio(s) falhado(s). Ver Definições.' : 'Dropbox: registos enviados (' + ok + ' dia(s)).');
+    if (manual) keepScroll();   // envio automático não redesenha (não tira o foco a um campo em edição)
+    if (dayAgain) { dayAgain = false; scheduleDaySync(); }
+  }
+  DB.onWrite(() => scheduleDaySync());
+  // Linha de estado do envio diário (Definições). Falhas ficam visíveis ao operador, não só no console.
+  function daySyncLine() {
+    const s = dayStatus();
+    if (!s.lastTryAt) return '<p class="sub">Registos diários: ainda não enviados neste dispositivo.</p>';
+    const okTxt = s.lastOkAt ? 'último envio completo ' + esc(C.fmtDT(Date.parse(s.lastOkAt))) : 'nenhum envio completo';
+    const err = s.failed ? `<br><b class="d-reject">Falha: ${esc(s.lastError || '')}. Os dias em falta são reenviados na próxima gravação.</b>` : '';
+    const und = s.undated ? `<br>${esc(String(s.undated))} registo(s) sem data não entram nos ficheiros diários.` : '';
+    return `<p class="sub">Registos diários: ${okTxt}.${err}${und}</p>`;
   }
   let seq = 0;
   // UUID v4 por registo (o dispositivo vai em deviceId); recurso antigo se randomUUID não existir
@@ -822,9 +881,10 @@ window.ProdUI = function (C) {
     return ctxCard + `<section class="card"><h3>${esc(t('prodSettings'))}</h3>
       <p class="sub">${esc(t('prodSettingsSummary', { c: lineIds().map(id => id + ' ' + fmtKg(c.lineKgDay[id]) + ' kg/d').join(' · '), d: lineIds().map(id => id + ' ' + fmtKg(P.dampenerMax(c, id))).join(' · '), b: c.bins.length }))}</p>
       <button class="btn" data-nav="prodset">${esc(t('editProdSettings'))}</button></section>
-      <section class="card"><h3>Dropbox (saldos das bins)</h3>
-      <p class="sub">${dbSess() && dbSess().refreshToken ? 'Ligado neste dispositivo. O bins-status.json é enviado após cada gravação.' : 'Não ligado. Sem ligação, o ficheiro não é enviado (a cópia local continua a ser guardada).'}</p>
-      <button class="btn" data-pact="dbsignin">Ligar ao Dropbox</button> <button class="btn ghost" data-pact="dbsignout">Desligar</button></section>
+      <section class="card"><h3>Dropbox (saldos das bins e registos diários)</h3>
+      <p class="sub">${dbSess() && dbSess().refreshToken ? 'Ligado neste dispositivo. O bins-status.json e os registos do dia são enviados após cada gravação.' : 'Não ligado. Sem ligação, nada é enviado (os registos continuam guardados neste dispositivo).'}</p>
+      ${daySyncLine()}
+      <button class="btn" data-pact="dbsignin">Ligar ao Dropbox</button> <button class="btn" data-pact="dbsyncnow">Enviar agora</button> <button class="btn ghost" data-pact="dbsignout">Desligar</button></section>
       <section class="card"><h3>${esc(t('codesTitle'))}</h3>
       <p class="sub">${esc(t('codesSummary', { n: codes().filter(c => c.active !== false).length, s: S.cfgP.codesSource || '', pt: codes().filter(c => c.namePt).length, o: codes().filter(c => c.oee).length }))}</p>
       <button class="btn" data-nav="codes">${esc(t('editCodes'))}</button></section>`;
@@ -995,6 +1055,7 @@ window.ProdUI = function (C) {
       case 'saveprodset': return saveProdSet();
       case 'dbsignin': return dropboxSignIn();
       case 'dbsignout': dropboxSignOut(); keepScroll(); return;
+      case 'dbsyncnow': syncDays(true); return;
       case 'savecodes': return saveCodes();
       case 'savereading': return saveReading(el.dataset.uid);
     }

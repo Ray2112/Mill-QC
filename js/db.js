@@ -54,12 +54,18 @@
     });
     return dbp;
   }
+  // Avisos de gravação (v2.1.0): chamados depois de cada transacção de escrita concluída (envio dos ficheiros diários)
+  const writeListeners = [];
+  function onWrite(fn) { writeListeners.push(fn); }
   function tx(stores, mode, fn) {
     return open().then(db => new Promise((res, rej) => {
       const t = db.transaction(stores, mode);
       let out;
       Promise.resolve(fn(t)).then(v => { out = v; });
-      t.oncomplete = () => res(out);
+      t.oncomplete = () => {
+        res(out);
+        if (mode === 'readwrite') writeListeners.forEach(f => { try { f(stores); } catch (e) { console.warn('onWrite', e); } });
+      };
       t.onerror = () => rej(t.error);
       t.onabort = () => rej(t.error || new Error('abort'));
     }));
@@ -149,5 +155,5 @@
     });
     return { warnings };
   }
-  root.DB = { open, add, put, all, batch, getConfig, setConfig, setContext, saveSampleBundle, exportAll, importAll, DB_NAME, DB_VERSION, FORMAT };
+  root.DB = { open, add, put, all, batch, getConfig, setConfig, setContext, saveSampleBundle, exportAll, importAll, onWrite, DB_NAME, DB_VERSION, FORMAT };
 })(window);
