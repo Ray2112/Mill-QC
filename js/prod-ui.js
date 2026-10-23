@@ -63,6 +63,18 @@ window.ProdUI = function (C) {
     S.siloSnaps = await DB.all('siloSnapshots');
     S.prodChanges = await DB.all('prodChanges');
     S.moves = await DB.all('grainMoves');
+    refreshBinsStatus();
+  }
+  // Estado das bins para a Mill-App (bins-status). Guarda a última cópia no dispositivo (localStorage);
+  // a escrita para o Dropbox fica para a versão seguinte. Falha de gravação não interrompe o trabalho.
+  const BINS_STATUS_KEY = 'mill-qc.binsStatus.v1';
+  function refreshBinsStatus() {
+    if (!S.cfgP) return;
+    try {
+      const out = P.buildBinsStatus(S.cfgP, S.moves, S.jobs, { now: Date.now(), writerVersion: P.VERSION, site: S.cfgP.site || '' });
+      S.binsStatus = out;
+      localStorage.setItem(BINS_STATUS_KEY, JSON.stringify(out));
+    } catch (e) { console.warn('bins-status', e); }
   }
   let seq = 0;
   // UUID v4 por registo (o dispositivo vai em deviceId); recurso antigo se randomUUID não existir
