@@ -5,10 +5,10 @@
 (function (root) {
   'use strict';
   const DB_NAME = 'moagem-cq';
-  const DB_VERSION = 4;
+  const DB_VERSION = 5;
   const FORMAT = 4;
   const STORES = ['samples', 'holds', 'alerts', 'limitChanges', 'reports'];   // chave: id (UUID)
-  const PSTORES = ['jobs', 'binEvents', 'shiftLog', 'siloSnapshots', 'prodChanges', 'grainMoves'];   // chave: uid
+  const PSTORES = ['jobs', 'binEvents', 'shiftLog', 'siloSnapshots', 'prodChanges', 'grainMoves', 'shiftReadings'];   // shiftReadings: v5 (app 2.2.0)   // chave: uid
   const ALL = STORES.concat(PSTORES);
   const LOCAL_KEYS = ['pin', 'pinLock', 'deviceId', 'ctx'];        // ficam só neste dispositivo (ctx = operador e modo de teste)
   let dbp = null;

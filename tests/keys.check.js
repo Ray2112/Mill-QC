@@ -16,6 +16,9 @@ L.MILL_TYPES.forEach(m => dyn.push('mill_' + m)); L.FREQS.forEach(f => dyn.push(
 ['hold', 'warn', 'ok', 'stopped', 'nodata'].forEach(s => dyn.push('st_' + s)); ['open', 'action', 'closed'].forEach(s => dyn.push('hs_' + s)); ['D', 'N'].forEach(s => dyn.push('shift_' + s));
 ['home', 'sample', 'holds', 'prod', 'records', 'report', 'settings'].forEach(s => dyn.push('nav_' + s));
 ['jobs', 'grain', 'log', 'bins'].forEach(s => dyn.push('ptab_' + s)); P.JOB_STATUS.forEach(s => dyn.push('js_' + s));
+P.SR_KINDS.forEach(k => dyn.push('srKind_' + k)); P.SR_POINTS.forEach(k => dyn.push('srPoint_' + k));
+['ok', 'missing', 'missing_start', 'missing_end', 'negative'].forEach(s => dyn.push('srSt_' + s));
+for (const m of fs.readFileSync('js/prod.js', 'utf8').matchAll(/e\.push\('(sr_[a-z_]+)'\)/g)) dyn.push(m[1]);
 P.ACT_TYPES.forEach(c => dyn.push('at_' + c)); P.SILO_GRADES.concat(['none']).forEach(g => dyn.push('g_' + g));
 // códigos de erro/aviso: extrair de js/prod.js
 const src = fs.readFileSync('js/prod.js', 'utf8');

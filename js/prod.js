@@ -12,7 +12,7 @@
 (function (root) {
   'use strict';
 
-  const VERSION = '2.1.0';
+  const VERSION = '2.2.0';
   const COLOURS = ['Amarelo', 'Branco'];
   const SILO_GRADES = ['G1', 'G2', 'OFF', 'PRI'];          // designações da app de Silos (REJ nunca vai a moagem)
   // Códigos de paragem FMO — fonte: 2026-09-30_FMO_Downtime_Codes_v2.xlsx (folha Folha1), autorizado por Zhax (14-10-2026).
@@ -831,7 +831,9 @@
 
   function validProdBackup(o) {
     const okArr = k => o[k] === undefined || Array.isArray(o[k]);
-    if (!['jobs', 'binEvents', 'shiftLog', 'siloSnapshots', 'prodChanges', 'grainMoves'].every(okArr)) return false;
+    if (!['jobs', 'binEvents', 'shiftLog', 'siloSnapshots', 'prodChanges', 'grainMoves', 'shiftReadings'].every(okArr)) return false;
+    const okSr = (o.shiftReadings || []).every(r => r && typeof r.uid === 'string' && SR_KINDS.indexOf(r.srKind) >= 0 && SR_POINTS.indexOf(r.point) >= 0 && isNum(r.valueKg));
+    if (!okSr) return false;
     const okMoves = (o.grainMoves || []).every(m => m && typeof m.uid === 'string' && typeof m.binId === 'string' && ['TRANSFER', 'EMPTY'].indexOf(m.type) >= 0);
     if (!okMoves) return false;
     const okJobs = (o.jobs || []).every(j => j && typeof j.uid === 'string' && JOB_STATUS.indexOf(j.status) >= 0 && typeof j.lineId === 'string');
@@ -840,7 +842,71 @@
     return okJobs && okBin && okLog;
   }
 
-  const api = { planQueue, planFeed, buildBinsStatus, BINS_STATUS_SCHEMA, VERSION, COLOURS, SILO_GRADES, GRAIN_SILOS, DEFAULT_DIRTY_BINS, DEFAULT_TEMPERED_BINS, MASTER_SOURCE, dirtyBinState, validateTransfer, crewLeader, leaderNames, transferredAfter, parseSiloList, nonCanonical, DOWNTIME_CODES, DOWNTIME_SOURCE, TIER3, OEE_TREAT, OEE_KEY, mergeCodes, migrateUnits, defaultCodes, findCode, validateCodes, ACT_TYPES, JOB_STATUS, DEFAULT_BINS, BIN_SOURCE,
+  // ---------- leituras de balança por turno (v2.2.0) ----------
+  // Totalizadores lidos no início e no fim de cada turno: grão moído (balança de fluxo B1, uma por linha)
+  // e produto por produto e linha. Quantidade do turno = fim − início. Correcção = nova leitura com
+  // replaces:<uid> e motivo (a original fica gravada). Nada é estimado: falta uma leitura → sem valor.
+  const SR_KINDS = ['grain', 'product'];
+  const SR_POINTS = ['start', 'end'];
+  const SR_DAY = /^\d{4}-\d{2}-\d{2}$/;
+  const srSlot = r => [r.prodDay, r.period, r.lineId, r.srKind, r.srKind === 'product' ? r.productId : '', r.point].join('|');
+  // Leituras em vigor: sem as que foram substituídas por uma correcção
+  function effectiveReadings(list) {
+    const replaced = new Set((list || []).map(r => r.replaces).filter(Boolean));
+    return (list || []).filter(r => !replaced.has(r.uid));
+  }
+  // o: {prodDay, period, lineId, srKind, productId, point, valueKg (texto ou número), by, replaces, reason}
+  // ctx: {lineIds:[], productIds:[], readings:[]}. Devolve lista de códigos de erro (vazia = pode gravar).
+  function validateShiftReading(o, ctx) {
+    const e = [], c = ctx || {};
+    if (!SR_DAY.test(String(o.prodDay || '')) || isNaN(Date.parse(o.prodDay))) e.push('sr_day');
+    if (o.period !== 'D' && o.period !== 'N') e.push('sr_period');
+    if ((c.lineIds || []).indexOf(o.lineId) < 0) e.push('sr_line');
+    if (SR_KINDS.indexOf(o.srKind) < 0) e.push('sr_kind');
+    if (o.srKind === 'product' && (c.productIds || []).indexOf(o.productId) < 0) e.push('sr_product');
+    if (SR_POINTS.indexOf(o.point) < 0) e.push('sr_point');
+    const v = num(o.valueKg, 'kg');
+    if (v === null || isNaN(v) || v < 0) e.push('sr_value');
+    if (!String(o.by || '').trim()) e.push('sr_by');
+    const eff = effectiveReadings(c.readings);
+    const slot = srSlot(o);
+    if (o.replaces) {
+      const tgt = eff.find(r => r.uid === o.replaces);
+      if (!tgt) e.push('sr_replaces');
+      else if (srSlot(tgt) !== slot) e.push('sr_replaces_slot');
+      if (!String(o.reason || '').trim()) e.push('sr_reason');
+    } else if (eff.some(r => srSlot(r) === slot)) e.push('sr_duplicate');
+    return e;
+  }
+  // Totais de um turno por linha: {lineId: {grain:{start,end,kg,status}, products:{pid:{...}}, extraction:{pid: %}}}
+  // status: ok | missing_start | missing_end | missing | negative (fim < início: totalizador reposto? verificar)
+  function shiftTotals(readings, day, period) {
+    const eff = effectiveReadings(readings).filter(r => r.prodDay === day && r.period === period);
+    const out = {};
+    const pair = (list) => {
+      const s = list.find(r => r.point === 'start'), en = list.find(r => r.point === 'end');
+      const res = { start: s ? s.valueKg : null, end: en ? en.valueKg : null, kg: null, status: 'ok' };
+      if (!s && !en) res.status = 'missing';
+      else if (!s) res.status = 'missing_start';
+      else if (!en) res.status = 'missing_end';
+      else if (en.valueKg < s.valueKg) res.status = 'negative';
+      else res.kg = Math.round((en.valueKg - s.valueKg) * 1000) / 1000;
+      return res;
+    };
+    [...new Set(eff.map(r => r.lineId))].sort().forEach(line => {
+      const lr = eff.filter(r => r.lineId === line);
+      const grain = pair(lr.filter(r => r.srKind === 'grain'));
+      const products = {}, extraction = {};
+      [...new Set(lr.filter(r => r.srKind === 'product').map(r => r.productId))].sort().forEach(pid => {
+        products[pid] = pair(lr.filter(r => r.srKind === 'product' && r.productId === pid));
+        if (products[pid].kg !== null && grain.kg !== null && grain.kg > 0) extraction[pid] = Math.round(products[pid].kg / grain.kg * 10000) / 100;
+      });
+      out[line] = { grain, products, extraction };
+    });
+    return out;
+  }
+
+  const api = { SR_KINDS, SR_POINTS, effectiveReadings, validateShiftReading, shiftTotals, planQueue, planFeed, buildBinsStatus, BINS_STATUS_SCHEMA, VERSION, COLOURS, SILO_GRADES, GRAIN_SILOS, DEFAULT_DIRTY_BINS, DEFAULT_TEMPERED_BINS, MASTER_SOURCE, dirtyBinState, validateTransfer, crewLeader, leaderNames, transferredAfter, parseSiloList, nonCanonical, DOWNTIME_CODES, DOWNTIME_SOURCE, TIER3, OEE_TREAT, OEE_KEY, mergeCodes, migrateUnits, defaultCodes, findCode, validateCodes, ACT_TYPES, JOB_STATUS, DEFAULT_BINS, BIN_SOURCE,
     defaultProdConfig, addFinishedBins, num, waterFor, waterRate, defaultFeedKgh, feedKghOf, siloKg, snapshotFromSilosBackup,
     availableKg, allocate, jobOutputs, jobProducts, recipeSet, OLD_DOWNTIME_SOURCES, dampenerMax, recipeFit, binState, binCheck, validateJob, readingCalc, needsShiftReading, parseBins, binsText,
     validateProdConfig, prodConfigDiff, effectiveLog, validateIssue, validateActivity, shiftSummary, uid, validProdBackup };

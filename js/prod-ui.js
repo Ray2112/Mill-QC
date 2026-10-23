@@ -65,6 +65,7 @@ window.ProdUI = function (C) {
     S.siloSnaps = await DB.all('siloSnapshots');
     S.prodChanges = await DB.all('prodChanges');
     S.moves = await DB.all('grainMoves');
+    S.readings = await DB.all('shiftReadings');
     refreshBinsStatus();
   }
   // Estado das bins para a Mill-App (bins-status). Guarda a última cópia no dispositivo (localStorage);
@@ -683,9 +684,70 @@ window.ProdUI = function (C) {
       ${f ? '' : `<div class="row"><button class="btn primary" data-pact="newissue">＋ ${esc(t('newIssue'))}</button><button class="btn" data-pact="newact">＋ ${esc(t('newActivity'))}</button></div>`}
       <div class="row"><button class="btn ghost small" data-pact="shiftxlsx">${esc(t('genExcel'))}</button>
         <a class="btn ghost small" target="_blank" rel="noopener" href="${esc(C.waLink(shiftText(ls, sm)))}">${esc(t('sendSummaryWa'))}</a></div></section>
+      ${readingsCard(ls)}
       ${f ? logFormView() : ''}
       <section class="card"><h3>${esc(t('issues'))}</h3>${sm.issues.map(issueItem).join('') || '<p class="sub">—</p>'}</section>
       <section class="card"><h3>${esc(t('activities'))}</h3>${sm.acts.map(actItem).join('') || '<p class="sub">—</p>'}</section>`;
+  }
+  // ---------- leituras de balança por turno (v2.2.0) ----------
+  // Ligadas ao turno escolhido no diário (dia de produção + período), não à hora da gravação:
+  // a leitura de fim do turno de dia feita às 19:05 pertence ao turno de dia.
+  const SR_ST_CLS = { ok: '', missing: 'd-warn', missing_start: 'd-warn', missing_end: 'd-warn', negative: 'd-reject' };
+  function srCell(p) {
+    const cls = SR_ST_CLS[p.status] !== undefined ? SR_ST_CLS[p.status] : 'd-warn';
+    return `<td>${fmtKg(p.start)}</td><td>${fmtKg(p.end)}</td><td class="${cls}">${p.kg !== null ? fmtKg(p.kg) : esc(t('srSt_' + (SR_ST_CLS[p.status] !== undefined ? p.status : 'missing')))}</td>`;
+  }
+  function readingsCard(ls) {
+    const tot = P.shiftTotals(S.readings, ls.day, ls.period);
+    const eff = P.effectiveReadings(S.readings).filter(r => r.prodDay === ls.day && r.period === ls.period)
+      .sort((a, b) => (a.lineId > b.lineId ? 1 : a.lineId < b.lineId ? -1 : 0) || a.t - b.t);
+    const head = `<tr><th></th><th>${esc(t('srPoint_start'))}</th><th>${esc(t('srPoint_end'))}</th><th>${esc(t('srQty'))} (kg)</th><th>${esc(t('srExtraction'))}</th></tr>`;
+    const lines = Object.keys(tot).map(line => {
+      const x = tot[line];
+      const rows = [`<tr><td>${esc(t('srGrainB1'))}</td>${srCell(x.grain)}<td></td></tr>`].concat(Object.keys(x.products).map(pid =>
+        `<tr><td>${esc(C.prodName(pid))}</td>${srCell(x.products[pid])}<td>${x.extraction[pid] !== undefined ? esc(String(x.extraction[pid]).replace('.', ',')) + ' %' : '—'}</td></tr>`));
+      return `<h4>${esc(C.lineName(line))}</h4><div class="tablewrap"><table class="tbl">${head}${rows.join('')}</table></div>`;
+    }).join('');
+    const list = eff.map(r => `<div class="rowitem"><div class="row between"><span><b>${esc(C.lineName(r.lineId))}</b> · ${esc(r.srKind === 'grain' ? t('srGrainB1') : C.prodName(r.productId))} · ${esc(t('srPoint_' + (r.point === 'end' ? 'end' : 'start')))}: <b>${fmtKg(r.valueKg)} kg</b></span>
+        <button class="btn ghost small" data-pact="srfix" data-uid="${esc(r.uid)}">${esc(t('srFix'))}</button></div>
+        <small>${esc(C.fmtDT(r.t))} · ${esc(r.by)}${r.replaces ? ' · ' + esc(t('srCorrected')) + ': ' + esc(r.reason || '') : ''}</small></div>`).join('');
+    return `<section class="card"><h3>${esc(t('srTitle'))}</h3><p class="sub">${esc(t('srHelp'))}</p>
+      ${lines || `<p class="sub">${esc(t('srNone'))}</p>`}
+      ${S.srForm ? srFormView() : `<button class="btn primary" data-pact="newsr">＋ ${esc(t('srNew'))}</button>`}
+      ${list}</section>`;
+  }
+  function newSrForm(fix) {
+    const ls = logShift();
+    S.srForm = fix ? { prodDay: fix.prodDay, period: fix.period, lineId: fix.lineId, srKind: fix.srKind, productId: fix.productId || '', point: fix.point, valueKg: '', by: S.operator, replaces: fix.uid, reason: '' }
+      : { prodDay: ls.day, period: ls.period, lineId: '', srKind: 'grain', productId: '', point: 'start', valueKg: '', by: S.operator, replaces: null, reason: '' };
+  }
+  function srFormView() {
+    const f = S.srForm, fix = !!f.replaces, dis = fix ? 'disabled' : '';
+    const opt = (v, cur, label) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(label)}</option>`;
+    return `<div class="holdform"><h4>${esc(fix ? t('srFix') : t('srNew'))} · ${esc(f.prodDay)} ${esc(t('shift_' + (f.period === 'N' ? 'N' : 'D')))}</h4><div class="grid2">
+      <label class="fld req">${esc(t('line'))}<select data-sr="lineId" ${dis}>${lineOpts(f.lineId)}</select></label>
+      <label class="fld req">${esc(t('srKind'))}<select data-sr="srKind" ${dis}>${P.SR_KINDS.map(k => opt(k, f.srKind, t('srKind_' + k))).join('')}</select></label>
+      ${f.srKind === 'product' ? `<label class="fld req">${esc(t('product'))}<select data-sr="productId" ${dis}><option value="">—</option>${C.products().map(p => opt(p.id, f.productId, C.prodName(p.id))).join('')}</select></label>` : ''}
+      <label class="fld req">${esc(t('srPoint'))}<select data-sr="point" ${dis}>${P.SR_POINTS.map(k => opt(k, f.point, t('srPoint_' + k))).join('')}</select></label>
+      <label class="fld req">${esc(t('srValue'))}<input inputmode="decimal" data-sr="valueKg" value="${esc(f.valueKg)}"></label>
+      <label class="fld req">${esc(t('name'))}<input data-sr="by" value="${esc(f.by)}"></label></div>
+      ${fix ? `<label class="fld req">${esc(t('srReason'))}<textarea rows="2" data-sr="reason">${esc(f.reason)}</textarea></label>` : ''}
+      <button class="btn primary" data-pact="savesr">${esc(t('save'))}</button> <button class="btn ghost" data-pact="cancelsr">${esc(t('cancel'))}</button></div>`;
+  }
+  async function saveSr() {
+    const f = S.srForm;
+    const e = P.validateShiftReading(f, { lineIds: lineIds(), productIds: C.products().map(p => p.id), readings: S.readings });
+    if (e.length) return C.toast(t('fillFields') + ': ' + e.map(x => t(x)).join(', '));
+    const tms = now(), start = shiftRange(f.prodDay, f.period)[0];
+    const rec = Object.assign(base(tms), {
+      srKind: f.srKind, meter: f.srKind === 'grain' ? 'B1' : null, lineId: f.lineId, productId: f.srKind === 'product' ? f.productId : null,
+      point: f.point, valueKg: P.num(f.valueKg, 'kg'), t: tms, by: String(f.by).trim(),
+      prodDay: f.prodDay, period: f.period, shift: f.prodDay + '/' + f.period, crew: L.crewOfTime(start),
+      replaces: f.replaces || null, reason: f.replaces ? String(f.reason).trim() : null
+    });
+    try { await DB.add('shiftReadings', rec); } catch (err) { return C.toast(t('saveFailed')); }
+    S.operator = rec.by; await DB.setConfig('operator', S.operator);
+    S.srForm = null; await reload(); C.toast(t('saved')); keepScroll();
   }
   function lineOpts(sel) {
     return `<option value="">—</option>` + S.cfg.lines.map(l => `<option value="${esc(l.id)}" ${sel === l.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('');
@@ -1058,6 +1120,10 @@ window.ProdUI = function (C) {
       case 'dbsyncnow': syncDays(true); return;
       case 'savecodes': return saveCodes();
       case 'savereading': return saveReading(el.dataset.uid);
+      case 'newsr': newSrForm(); keepScroll(); return;
+      case 'cancelsr': S.srForm = null; keepScroll(); return;
+      case 'savesr': return saveSr();
+      case 'srfix': { const r = (S.readings || []).find(x => x.uid === el.dataset.uid); if (r) { newSrForm(r); keepScroll(); } return; }
     }
   }
   function onInput(el) {
@@ -1076,6 +1142,7 @@ window.ProdUI = function (C) {
     if (el.dataset.joi && S.jobForm) { const [i, k] = el.dataset.joi.split('|'); if (S.jobForm.outputs[+i]) S.jobForm.outputs[+i][k] = el.value; const b = $('#jobCheck'); if (b) b.innerHTML = jobCheckHtml(); return true; }
     if (el.dataset.jfi && S.jobForm) { S.jobForm[el.dataset.jfi] = el.value; const b = $('#jobCheck'); if (b) b.innerHTML = jobCheckHtml(); return true; }
     if (el.dataset.lf && S.logForm && el.tagName !== 'SELECT') { S.logForm[el.dataset.lf] = el.value; return true; }
+    if (el.dataset.sr && S.srForm && el.tagName !== 'SELECT') { S.srForm[el.dataset.sr] = el.value; return true; }
     return false;
   }
   async function saveCtx(k, v) {
@@ -1101,6 +1168,7 @@ window.ProdUI = function (C) {
     if (el.dataset.jfl && S.jobForm) { S.jobForm.leader = el.value; const b = $('#jobCheck'); if (b) b.innerHTML = jobCheckHtml(); return true; }
     if (el.dataset.trf && S.trForm) { S.trForm[el.dataset.trf] = el.type === 'checkbox' ? el.checked : el.value; keepScroll(); return true; }
     if (el.dataset.lf && S.logForm && el.tagName === 'SELECT') { S.logForm[el.dataset.lf] = el.value; keepScroll(); return true; }
+    if (el.dataset.sr && S.srForm && el.tagName === 'SELECT') { S.srForm[el.dataset.sr] = el.value; keepScroll(); return true; }
     if (el.id === 'logDay') { S.logShift = Object.assign(logShift(), { day: el.value || logShift().day }); C.render(); return true; }
     if (el.id === 'logPeriod') { S.logShift = Object.assign(logShift(), { period: el.value === 'N' ? 'N' : 'D' }); C.render(); return true; }
     if (el.id === 'importSilos') { importSilos(el.files[0]); el.value = ''; return true; }

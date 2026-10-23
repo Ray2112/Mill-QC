@@ -256,6 +256,27 @@
     floors: 'Floors (housekeeping)', floorsHelp: 'Comma-separated list, e.g. Floor 1, Floor 2. Used as suggestions in the log.',
     jobOnLine: 'Job: {p} · {kg} kg · water {w} L/h · since {h}'
   };
+  // v2.2.0 — leituras de balança por turno
+  Object.assign(pt, {
+    srTitle: 'Leituras de balança (totalizadores)', srHelp: 'Leia os totalizadores no início e no fim do turno escolhido acima: balança de fluxo B1 (grão moído) e cada produto. Quantidade = fim − início.',
+    srNone: 'Sem leituras neste turno.', srNew: 'Nova leitura', srFix: 'Corrigir', srCorrected: 'correcção', srReason: 'Motivo da correcção',
+    srKind: 'Leitura de', srKind_grain: 'Grão moído (B1)', srKind_product: 'Produto', srGrainB1: 'Grão moído (B1)',
+    srPoint: 'Momento', srPoint_start: 'Início do turno', srPoint_end: 'Fim do turno', srValue: 'Totalizador (kg)', srQty: 'Quantidade', srExtraction: 'Extracção',
+    srSt_ok: 'ok', srSt_missing: 'sem leituras', srSt_missing_start: 'falta início', srSt_missing_end: 'falta fim', srSt_negative: 'fim < início — verificar',
+    sr_day: 'dia de produção', sr_period: 'turno', sr_line: 'linha', sr_kind: 'tipo de leitura', sr_product: 'produto', sr_point: 'momento',
+    sr_value: 'totalizador (kg, ≥ 0)', sr_by: 'nome', sr_duplicate: 'já existe esta leitura neste turno (use Corrigir)', sr_replaces: 'leitura a corrigir não encontrada',
+    sr_replaces_slot: 'a correcção tem de ser da mesma linha, tipo, produto e momento', sr_reason: 'motivo da correcção'
+  });
+  Object.assign(en, {
+    srTitle: 'Scale readings (totalisers)', srHelp: 'Read the totalisers at the start and end of the shift chosen above: B1 flow scale (grain milled) and each product. Quantity = end − start.',
+    srNone: 'No readings for this shift.', srNew: 'New reading', srFix: 'Correct', srCorrected: 'correction', srReason: 'Reason for correction',
+    srKind: 'Reading of', srKind_grain: 'Grain milled (B1)', srKind_product: 'Product', srGrainB1: 'Grain milled (B1)',
+    srPoint: 'Point', srPoint_start: 'Start of shift', srPoint_end: 'End of shift', srValue: 'Totaliser (kg)', srQty: 'Quantity', srExtraction: 'Extraction',
+    srSt_ok: 'ok', srSt_missing: 'no readings', srSt_missing_start: 'start missing', srSt_missing_end: 'end missing', srSt_negative: 'end < start — check',
+    sr_day: 'production day', sr_period: 'shift', sr_line: 'line', sr_kind: 'reading type', sr_product: 'product', sr_point: 'point',
+    sr_value: 'totaliser (kg, ≥ 0)', sr_by: 'name', sr_duplicate: 'this reading already exists for this shift (use Correct)', sr_replaces: 'reading to correct not found',
+    sr_replaces_slot: 'a correction must keep the same line, type, product and point', sr_reason: 'reason for correction'
+  });
   Object.assign(window.I18N.pt, pt);
   Object.assign(window.I18N.en, en);
 })();

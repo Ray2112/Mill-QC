@@ -4,9 +4,9 @@
 // O ficheiro de um dia é reescrito por inteiro sempre que um registo desse dia muda (modo overwrite);
 // a ingestão desduplica por id/uid, portanto reenviar o mesmo dia não duplica nada.
 (function (root) {
-  const FILE_SCHEMA = 1;
+  const FILE_SCHEMA = 2;   // 2 (app 2.2.0): + shiftReadings
   const QC_STORES = ['samples', 'holds', 'alerts', 'limitChanges', 'reports'];                          // chave: id
-  const PROD_STORES = ['jobs', 'binEvents', 'shiftLog', 'siloSnapshots', 'prodChanges', 'grainMoves'];  // chave: uid
+  const PROD_STORES = ['jobs', 'binEvents', 'shiftLog', 'siloSnapshots', 'prodChanges', 'grainMoves', 'shiftReadings'];  // chave: uid
   const STORES = QC_STORES.concat(PROD_STORES);
   const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
