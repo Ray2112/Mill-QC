@@ -355,6 +355,32 @@
       since, last, runningJobs: running };
   }
 
+  // ---------- ficheiro de saldos das bins (bins-status.json) ----------
+  // Só leitura do estado: não altera moves nem jobs. Lista apenas as transferências do ciclo atual (desde o último "vazio").
+  // opts: {now (epoch ms), writerVersion, site}. Devolve o objeto a gravar (JSON.stringify).
+  const BINS_STATUS_SCHEMA = 1;
+  function isoUtc(ms) { return new Date(ms).toISOString(); }
+  function buildBinsStatus(cfgP, moves, jobs, opts) {
+    const o = opts || {};
+    const now = isNum(o.now) ? o.now : Date.now();
+    const bins = (cfgP.dirtyBins || []).map(b => {
+      const st = dirtyBinState(b.id, moves, jobs);
+      const since = isNum(st.since) ? st.since : null;
+      const transfers = (moves || [])
+        .filter(m => m.binId === b.id && m.type === 'TRANSFER' && (since === null || m.t > since))
+        .sort((a, c) => a.t - c.t || (a.createdAt || 0) - (c.createdAt || 0))
+        .map(m => ({ t: isoUtc(m.t), kg: m.kg, parts: (m.parts || []).map(p => ({ silo: p.silo, kg: p.kg, cereal: p.cereal, colour: p.colour, grade: p.grade })) }));
+      const state = st.kg < 0 ? 'NEG' : (isNum(b.capKg) && st.kg > b.capKg ? 'OVER' : (st.kg === 0 ? 'EMPTY' : 'OK'));
+      return {
+        id: b.id, lines: b.lines.slice(), capKg: isNum(b.capKg) ? b.capKg : null, kg: st.kg, state,
+        since: since === null ? null : isoUtc(since), transfers,
+        runningJobs: st.runningJobs.slice()
+      };
+    });
+    return { schemaVersion: BINS_STATUS_SCHEMA, generatedAt: isoUtc(now), writer: 'mill-qc',
+      writerVersion: String(o.writerVersion || VERSION), site: String(o.site || ''), bins };
+  }
+
   // Transferência silo(s) de grão → silo de milho sujo. tr: {binId, silos:[ids em ordem], kg, silosConfirmed}
   // ctx: {cfgP, millType, snapshot, moves, jobs, shiftStart}
   function validateTransfer(tr, ctx) {
@@ -814,7 +840,7 @@
     return okJobs && okBin && okLog;
   }
 
-  const api = { planQueue, planFeed, VERSION, COLOURS, SILO_GRADES, GRAIN_SILOS, DEFAULT_DIRTY_BINS, DEFAULT_TEMPERED_BINS, MASTER_SOURCE, dirtyBinState, validateTransfer, crewLeader, leaderNames, transferredAfter, parseSiloList, nonCanonical, DOWNTIME_CODES, DOWNTIME_SOURCE, TIER3, OEE_TREAT, OEE_KEY, mergeCodes, migrateUnits, defaultCodes, findCode, validateCodes, ACT_TYPES, JOB_STATUS, DEFAULT_BINS, BIN_SOURCE,
+  const api = { planQueue, planFeed, buildBinsStatus, BINS_STATUS_SCHEMA, VERSION, COLOURS, SILO_GRADES, GRAIN_SILOS, DEFAULT_DIRTY_BINS, DEFAULT_TEMPERED_BINS, MASTER_SOURCE, dirtyBinState, validateTransfer, crewLeader, leaderNames, transferredAfter, parseSiloList, nonCanonical, DOWNTIME_CODES, DOWNTIME_SOURCE, TIER3, OEE_TREAT, OEE_KEY, mergeCodes, migrateUnits, defaultCodes, findCode, validateCodes, ACT_TYPES, JOB_STATUS, DEFAULT_BINS, BIN_SOURCE,
     defaultProdConfig, addFinishedBins, num, waterFor, waterRate, defaultFeedKgh, feedKghOf, siloKg, snapshotFromSilosBackup,
     availableKg, allocate, jobOutputs, jobProducts, recipeSet, OLD_DOWNTIME_SOURCES, dampenerMax, recipeFit, binState, binCheck, validateJob, readingCalc, needsShiftReading, parseBins, binsText,
     validateProdConfig, prodConfigDiff, effectiveLog, validateIssue, validateActivity, shiftSummary, uid, validProdBackup };

@@ -637,4 +637,41 @@ t('caudal de grão: trabalhos antigos (feedTph em t/h) lidos em kg/h', () => {
   assert.strictEqual(P.feedKghOf({ feedKgh: 15000, feedTph: 20 }), 15000);
   assert.strictEqual(P.feedKghOf({}), null);
 });
-console.log('OK — v1.5.0 (códigos, unidades, caudal)');
+
+t('bins-status: ciclo atual, saldo e transferências desde o último vazio', () => {
+  const cfg = { dirtyBins: [{ id: 'B01', lines: ['C', 'D'], capKg: 130000 }] };
+  const T0 = Date.parse('2026-10-23T06:00:00Z');
+  const moves = [
+    { type: 'TRANSFER', binId: 'B01', t: T0 + 1000, kg: 50000, parts: [{ silo: 'S05', kg: 50000, cereal: 'Milho', colour: 'Amarelo', grade: '1' }] },
+    { type: 'EMPTY', binId: 'B01', t: T0 + 2000 },
+    { type: 'TRANSFER', binId: 'B01', t: T0 + 3000, kg: 40000, parts: [{ silo: 'S06', kg: 40000, cereal: 'Milho', colour: 'Amarelo', grade: '1' }] },
+    { type: 'TRANSFER', binId: 'B01', t: T0 + 4000, kg: 20000, parts: [{ silo: 'S07', kg: 20000, cereal: 'Milho', colour: 'Branco', grade: '2' }] },
+  ];
+  const out = P.buildBinsStatus(cfg, moves, [], { now: T0 + 5000, writerVersion: '1.8.0', site: 'Teste' });
+  assert.strictEqual(out.schemaVersion, 1);
+  assert.strictEqual(out.generatedAt, new Date(T0 + 5000).toISOString());
+  const b = out.bins[0];
+  assert.strictEqual(b.id, 'B01');
+  assert.strictEqual(b.kg, 60000);                       // só o ciclo depois do vazio
+  assert.strictEqual(b.state, 'OK');
+  assert.strictEqual(b.transfers.length, 2);             // a transferência antes do vazio não entra
+  assert.strictEqual(b.transfers[0].parts[0].silo, 'S06');
+  assert.strictEqual(b.capKg, 130000);
+});
+
+t('bins-status: ordem em curso desconta o grão planeado; estado FULL/EMPTY', () => {
+  const cfg = { dirtyBins: [{ id: 'B02', lines: ['C'], capKg: 100000 }] };
+  const T0 = Date.parse('2026-10-23T06:00:00Z');
+  const moves = [{ type: 'TRANSFER', binId: 'B02', t: T0 + 1000, kg: 90000, parts: [{ silo: 'S01', kg: 90000, cereal: 'Milho', colour: 'Amarelo', grade: '1' }] }];
+  const jobs = [{ uid: 'j1', status: 'running', startedAt: T0 + 2000, alloc: [{ bin: 'B02', kg: 30000 }] }];
+  const b = P.buildBinsStatus(cfg, moves, jobs, { now: T0 + 3000 }).bins[0];
+  assert.strictEqual(b.kg, 60000);
+  assert.deepStrictEqual(b.runningJobs, ['j1']);
+  const empty = P.buildBinsStatus({ dirtyBins: [{ id: 'B03', lines: ['D'], capKg: 1000 }] }, [], [], { now: T0 }).bins[0];
+  assert.strictEqual(empty.kg, 0);
+  assert.strictEqual(empty.state, 'EMPTY');
+  assert.strictEqual(empty.since, null);
+  assert.deepStrictEqual(empty.transfers, []);
+});
+
+console.log('OK — v1.5.0 (códigos, unidades, caudal) + bins-status');
