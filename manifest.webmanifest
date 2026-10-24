@@ -1,6 +1,6 @@
 {
-  "name": "Prod-Mgt",
-  "short_name": "Prod-Mgt",
+  "name": "Prodn-Mgt",
+  "short_name": "Prodn-Mgt",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

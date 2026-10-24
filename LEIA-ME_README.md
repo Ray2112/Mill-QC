@@ -1,6 +1,6 @@
-# Prod-Mgt — Moagem: Controlo de Qualidade (auto-controlo) + Produção · v2.3.1
+# Prodn-Mgt — Moagem: Controlo de Qualidade (auto-controlo) + Produção · v2.3.1
 
-> **v2.3.1 (24-10-2026) — novo nome: Prod-Mgt** (antes Mill-QC). Novo endereço: https://ray2112.github.io/Prod-Mgt/ — reinstale a app a partir deste endereço; os registos e a ligação ao Dropbox mantêm-se. A pasta do Dropbox continua `/Apps/Mill-CD/` e os ficheiros diários mantêm o nome `AAAA-MM-DD_FMO_MillQC.json`. New name **Prod-Mgt** (formerly Mill-QC); reinstall from the new address; records and the Dropbox link are kept; Dropbox folder and file names unchanged.
+> **v2.3.1 (24-10-2026) — novo nome: Prodn-Mgt** (antes Mill-QC). Novo endereço: https://ray2112.github.io/Prodn-Mgt/ — reinstale a app a partir deste endereço; os registos e a ligação ao Dropbox mantêm-se. A pasta do Dropbox continua `/Apps/Mill-CD/` e os ficheiros diários mantêm o nome `AAAA-MM-DD_FMO_MillQC.json`. New name **Prodn-Mgt** (formerly Mill-QC); reinstall from the new address; records and the Dropbox link are kept; Dropbox folder and file names unchanged.
 
 > **v2.3.0 (24-10-2026) — importar resultados do WhatsApp.** Amostra → "Colar do WhatsApp": cole as mensagens do grupo do CQ, escolha a linha e o dia de produção e carregue em "Analisar". A pré-visualização mostra cada amostra com a decisão (aceite / aviso / rejeitado) pelos limites da app; só depois de "Importar" é que é gravada, como uma amostra manual (mesmas retenções e alertas), com a origem, o equipamento e o texto original da mensagem. Formato reconhecido: hora ("9h"), "Milho Seco-", "Milho Húmido-16.8%", nome do produto ("Fuba Amarela" = Fuba 2), "Humidade / Proteínas / Cinzas / Gorduras / Fibras -valor%", "Equipamento em uso: …"; aceita o cabeçalho "[09:39, 24/10/2026] Nome:". Valor vazio = não medido; linha ou produto não reconhecido = assinalado, nunca adivinhado. A humidade do milho (seco e húmido) vai para a ordem em curso na linha à hora da mensagem; sem ordem, não é gravada. Colar a mesma mensagem duas vezes não duplica.
 
@@ -35,7 +35,7 @@
 
 App offline (PWA) para o auto-controlo de qualidade nas linhas de moagem. Separada da app de Silos (`Grain-Mgt`): repositório, endereço, base de dados (`moagem-cq`) e cache próprios.
 
-Endereço (depois de publicada): https://ray2112.github.io/Prod-Mgt/
+Endereço (depois de publicada): https://ray2112.github.io/Prodn-Mgt/
 
 ## O que faz
 - **Tipo de moagem:** Milho (configurado) · Trigo e Arroz (ainda sem produtos/limites).
