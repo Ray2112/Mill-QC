@@ -382,7 +382,7 @@ window.ProdUI = function (C) {
     const prev = S.readForm && S.readForm.uid === j.uid ? P.readingCalc(j, S.readForm.m0, S.cfgP) : null;
     return `<div class="due"><div class="sub">${esc(t('maizeMoisture'))}</div>
       ${need ? `<div class="banner b-warn">${esc(t('needReading'))}</div>` : ''}
-      ${rs.map(r => `<div class="kv"><span>${esc(C.fmtDT(r.t))} · ${esc(t('crew'))} ${esc(r.crew || '—')}${r.kind === 'start' ? ' · ' + esc(t('atStart')) : ''}</span><b class="${r.over ? 'txt-reject' : ''}">${esc(C.fmtNum(r.m0))} % → ${fmtKg(r.waterLh)} L/h</b></div>`).join('')}
+      ${rs.map(r => `<div class="kv"><span>${esc(C.fmtDT(r.t))} · ${esc(t('crew'))} ${esc(r.crew || '—')}${r.kind === 'start' ? ' · ' + esc(t('atStart')) : ''}${r.kind === 'lab' ? ' · ' + esc(t('waLab')) : ''}</span><b class="${r.over ? 'txt-reject' : ''}">${isNum(r.m0) ? esc(C.fmtNum(r.m0)) + ' % → ' + fmtKg(r.waterLh) + ' L/h' : ''}${isNum(r.mTempered) ? (isNum(r.m0) ? ' · ' : '') + esc(t('waWet')) + ' ' + esc(C.fmtNum(r.mTempered)) + ' %' : ''}</b></div>`).join('')}
       ${j.status === 'running' ? `<div class="grid2"><label class="fld">${esc(t('m0Now'))} (%)<input inputmode="decimal" data-rd="${esc(j.uid)}" value="${esc(S.readForm && S.readForm.uid === j.uid ? S.readForm.m0 : '')}"></label>
         <label class="fld">${esc(t('name'))}<input id="rd_by_${esc(j.uid)}" value="${esc(S.operator)}"></label></div>
         <div id="rdc_${esc(j.uid)}">${readPreview(j, prev)}</div>

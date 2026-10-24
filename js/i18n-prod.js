@@ -277,6 +277,29 @@
     sr_value: 'totaliser (kg, ≥ 0)', sr_by: 'name', sr_duplicate: 'this reading already exists for this shift (use Correct)', sr_replaces: 'reading to correct not found',
     sr_replaces_slot: 'a correction must keep the same line, type, product and point', sr_reason: 'reason for correction'
   });
+  // v2.3.0 — importação do WhatsApp
+  Object.assign(pt, {
+    waOpen: 'Colar do WhatsApp', waTitle: 'Importar resultados do WhatsApp',
+    waHelp: 'Copie as mensagens do grupo do CQ e cole abaixo. Cada mensagem começa pela hora (ex.: 9h). Escolha a linha e o dia de produção (07:00–07:00; 0h–6h contam para a madrugada seguinte). Verifique a pré-visualização antes de importar.',
+    waPasteHere: 'Mensagens coladas', waAnalyse: 'Analisar', waPreview: 'Pré-visualização', waNothing: 'Nenhuma mensagem com hora encontrada.',
+    waImportN: 'Importar {n} registo(s)', waWillImport: 'a importar', waMaize: 'Milho', waDry: 'seco', waWet: 'húmido', waLab: 'laboratório',
+    waDone: 'Importadas {s} amostra(s) e {m} leitura(s) de milho.',
+    wa_dup: 'já importada', wa_no_job: 'sem ordem na linha a esta hora — não gravada', wa_job_closed: 'ordem já fechada — humidade seca não gravada',
+    wa_product_missing: 'produto não configurado nesta app', wa_empty: 'mensagem sem resultados', wa_product_empty: 'produto sem valores',
+    wa_product_unknown: 'produto não reconhecido', wa_value_bad: 'valor ilegível', wa_label_unknown: 'parâmetro não reconhecido',
+    wa_no_product: 'resultado antes do nome do produto', wa_duplicate: 'parâmetro repetido'
+  });
+  Object.assign(en, {
+    waOpen: 'Paste from WhatsApp', waTitle: 'Import results from WhatsApp',
+    waHelp: 'Copy the messages from the QC group and paste them below. Each message starts with the hour (e.g. 9h). Choose the line and production day (07:00–07:00; 0h–6h count as the following early morning). Check the preview before importing.',
+    waPasteHere: 'Pasted messages', waAnalyse: 'Analyse', waPreview: 'Preview', waNothing: 'No message with an hour found.',
+    waImportN: 'Import {n} record(s)', waWillImport: 'to import', waMaize: 'Maize', waDry: 'dry', waWet: 'tempered', waLab: 'laboratory',
+    waDone: 'Imported {s} sample(s) and {m} maize reading(s).',
+    wa_dup: 'already imported', wa_no_job: 'no job on the line at this hour — not saved', wa_job_closed: 'job already closed — dry moisture not saved',
+    wa_product_missing: 'product not configured in this app', wa_empty: 'message without results', wa_product_empty: 'product without values',
+    wa_product_unknown: 'product not recognised', wa_value_bad: 'unreadable value', wa_label_unknown: 'parameter not recognised',
+    wa_no_product: 'result before the product name', wa_duplicate: 'repeated parameter'
+  });
   Object.assign(window.I18N.pt, pt);
   Object.assign(window.I18N.en, en);
 })();

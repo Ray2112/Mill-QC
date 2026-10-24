@@ -60,3 +60,11 @@ assert.ok(P.validProdBackup({ shiftReadings: day }));
 assert.ok(!P.validProdBackup({ shiftReadings: [{ uid: 'x', srKind: 'grain', point: 'start', valueKg: 'abc' }] }));
 
 console.log('OK — leituras de balança por turno');
+// v2.3.0: leitura do laboratório só com milho húmido (m0 nulo) não satisfaz a leitura do turno
+{
+  const job = { status: 'running', startedAt: 0, readings: [{ t: 100, m0: null, mTempered: 16.8, kind: 'lab' }] };
+  assert.strictEqual(P.needsShiftReading(job, 50), true);
+  job.readings.push({ t: 120, m0: 12.1, kind: 'lab' });
+  assert.strictEqual(P.needsShiftReading(job, 50), false);
+  console.log('OK — needsShiftReading ignora leitura sem m0');
+}

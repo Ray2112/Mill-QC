@@ -213,6 +213,7 @@
       case 'prod': return PU.view();
       case 'prodset': return PU.viewProdSet();
       case 'codes': return PU.viewCodes();
+      case 'waimport': return viewWaImport();
       default: return viewHome();
     }
   }
@@ -299,7 +300,7 @@
     const others = L.PARAMS.filter(p => !hourly.includes(p) && !shift.includes(p) && !((p === 'granA' || p === 'granB') && !(prod.limits[p] && prod.limits[p].sieve)));
     const ev = formEval();
     return `<section class="card">
-      <h2>${esc(f.correctsId ? t('correction') + ' #' + f.correctsId : t('newSample'))}</h2>
+      <div class="row between"><h2>${esc(f.correctsId ? t('correction') + ' #' + f.correctsId : t('newSample'))}</h2>${f.correctsId ? '' : `<button class="btn ghost small" data-nav="waimport">${esc(t('waOpen'))}</button>`}</div>
       ${f.correctsId ? `<label class="fld req">${esc(t('correctionReason'))}<input id="f_reason" value="${esc(f.reason)}"></label>` : ''}
       <div class="grid2">
         <label class="fld">${esc(t('line'))}<select id="f_line" ${f.correctsId ? 'disabled' : ''}>${S.cfg.lines.map(l => `<option value="${esc(l.id)}" ${l.id === f.lineId ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select></label>
@@ -389,6 +390,107 @@
     if (alertObj) raiseAlert(sample);
     else toast(t('saved') + (after && after.status === 'closed' ? ' — ' + t('holdClosed') : ''));
     if (after && after.status === 'closed' && alertObj) S.modal.holdClosed = true;
+    S.view = 'home'; render();
+  }
+
+  // ----- Importação do WhatsApp (v2.3.0) -----
+  // Colar → Analisar (pré-visualização com a decisão de cada amostra) → Importar. Cada amostra é gravada como a
+  // amostra manual (mesmos limites, retenções e alertas), com a origem e o texto original. Humidade do milho vai
+  // para a ordem em curso na linha à hora da mensagem; sem ordem, não é gravada.
+  function waState() {
+    if (!S.wa) S.wa = { text: '', lineId: (S.cfg.lines[0] && S.cfg.lines[0].id) || '', day: L.prodDay(Date.now()), operator: S.operator, rows: null };
+    return S.wa;
+  }
+  const jobAt = (lineId, tms) => (S.jobs || []).find(j => j.lineId === lineId && j.startedAt <= tms && (j.closedAt || Infinity) >= tms && j.status !== 'cancelled');
+  function waAnalyse() {
+    const w = waState(), now = Date.now();
+    const rows = [];
+    window.WaImport.parse(w.text).forEach(m => {
+      const tms = window.WaImport.timeOf(w.day, m.hour, m.minute);
+      const timeErr = tms > now + 5 * 60000 ? 'futureTime' : tms < now - 24 * 3600000 ? 'tooOld' : null;
+      const base = { msg: m, t: tms, timeErr };
+      m.errors.forEach(e => rows.push(Object.assign({}, base, { kind: 'error', code: e.code, text: e.text, ok: false })));
+      m.samples.forEach(s => {
+        const prod = product(s.productId);
+        const ev = prod ? L.evaluateSample(prod, s.values, {}) : null;
+        const dup = S.samples.some(x => x.lineId === w.lineId && x.productId === s.productId && x.t === tms);
+        const why = timeErr || (!prod ? 'wa_product_missing' : ev.errors.length ? 'fixInvalid' : dup ? 'wa_dup' : null);
+        rows.push(Object.assign({}, base, { kind: 'sample', productId: s.productId, ev, ok: !why, why }));
+      });
+      if (m.maize.dry != null || m.maize.wet != null) {
+        const j = jobAt(w.lineId, tms);
+        const dry = m.maize.dry != null ? L.num(m.maize.dry) : null, wet = m.maize.wet != null ? L.num(m.maize.wet) : null;
+        const bad = [dry, wet].some(v => v !== null && (isNaN(v) || v < 0 || v >= 100));
+        const dup = j && (j.readings || []).some(r => r.kind === 'lab' && r.t === tms);
+        const why = timeErr || (bad ? 'fixInvalid' : !j ? 'wa_no_job' : j.status !== 'running' && dry !== null ? 'wa_job_closed' : dup ? 'wa_dup' : null);
+        rows.push(Object.assign({}, base, { kind: 'maize', dry, wet, jobUid: j ? j.uid : null, ok: !why, why }));
+      }
+    });
+    w.rows = rows;
+  }
+  function viewWaImport() {
+    const w = waState();
+    const rows = w.rows || [];
+    const okN = rows.filter(r => r.ok).length;
+    const rowHtml = r => {
+      const when = esc(fmtTime(r.t)) + (r.msg.header ? ` <small>(${esc(r.msg.header.sender)} ${esc(r.msg.header.time)})</small>` : '');
+      if (r.kind === 'error') return `<div class="rowitem"><b>${when}</b> · <span class="chip d-reject">${esc(t(r.code))}</span> <small>${esc(r.text || '')}</small></div>`;
+      const status = r.ok ? `<span class="chip d-accept">${esc(t('waWillImport'))}</span>` : `<span class="chip ${r.why === 'wa_dup' ? 'd-record' : 'd-warn'}">${esc(t(r.why))}</span>`;
+      if (r.kind === 'maize') return `<div class="rowitem"><b>${when}</b> · ${esc(t('waMaize'))}: ${esc(t('waDry'))} ${r.dry !== null ? esc(fmtNum(r.dry)) + ' %' : '—'} · ${esc(t('waWet'))} ${r.wet !== null ? esc(fmtNum(r.wet)) + ' %' : '—'} ${status}</div>`;
+      const vals = r.ev ? Object.keys(r.ev.values).map(p => `${esc(paramLabel(p, product(r.productId)))} ${esc(fmtNum(r.ev.values[p]))}${r.ev.results[p] ? ` <span class="chip ${decCls(r.ev.results[p].decision)}">${esc(decLabel(r.ev.results[p].decision))}</span>` : ''}`).join(' · ') : '';
+      return `<div class="rowitem"><div class="row between"><span><b>${when}</b> · ${esc(prodName(r.productId))}${r.ev ? ` · <span class="chip ${decCls(r.ev.decision)}">${esc(decLabel(r.ev.decision))}</span>` : ''}</span>${status}</div><small>${vals}</small></div>`;
+    };
+    return `<section class="card"><h2>${esc(t('waTitle'))}</h2><p class="sub">${esc(t('waHelp'))}</p>
+      <div class="grid2">
+        <label class="fld">${esc(t('line'))}<select id="waLine">${S.cfg.lines.map(l => `<option value="${esc(l.id)}" ${l.id === w.lineId ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select></label>
+        <label class="fld">${esc(t('prodDay'))}<input type="date" id="waDay" value="${esc(w.day)}"></label>
+        <label class="fld req">${esc(t('operator'))}<input id="waOp" value="${esc(w.operator)}"></label></div>
+      <label class="fld">${esc(t('waPasteHere'))}<textarea id="waText" rows="10">${esc(w.text)}</textarea></label>
+      <button class="btn primary" id="waParse">${esc(t('waAnalyse'))}</button> <button class="btn ghost" data-nav="sample">${esc(t('cancel'))}</button></section>
+      ${w.rows ? `<section class="card"><h3>${esc(t('waPreview'))}</h3>${rows.map(rowHtml).join('') || `<p class="sub">${esc(t('waNothing'))}</p>`}
+        ${okN ? `<button class="btn primary big" id="waImport">${esc(t('waImportN', { n: okN }))}</button>` : ''}</section>` : ''}`;
+  }
+  async function waImport() {
+    const w = waState();
+    if (!String(w.operator || '').trim()) return toast(t('needOperator'));
+    waAnalyse();                                         // revalida com os dados actuais (evita duplicados)
+    const ok = w.rows.filter(r => r.ok);
+    let nS = 0, nM = 0, lastBad = null;
+    for (const r of ok) {
+      const m = r.msg;
+      try {
+        if (r.kind === 'sample') {
+          const prod = product(r.productId), ev = r.ev, tms = r.t;
+          const sample = {
+            t: tms, savedAt: Date.now(), lineId: w.lineId, productId: r.productId, crew: L.crewOfTime(tms), period: L.shiftOf(tms).period,
+            prodDay: L.prodDay(tms), operator: String(w.operator).trim(), values: ev.values, physical: ev.physical,
+            results: ev.results, decision: ev.decision, failures: ev.failures, notes: '',
+            limits: JSON.parse(JSON.stringify(prod.limits)), millType: S.cfg.millType, limitsVersion: S.cfg.limitsVersion || null,
+            source: 'whatsapp', sourceText: m.raw, instrument: m.equipment || null, sourceSender: m.header ? m.header.sender : null
+          };
+          const existing = openHold(w.lineId);
+          const holdFn = s => existing ? [L.holdAfterSample(existing, s)] : s.decision === 'reject' ? [L.newHold(s)] : [];
+          const alertObj = (sample.decision === 'warn' || sample.decision === 'reject') ? { t: tms, lineId: w.lineId, productId: r.productId, decision: sample.decision, crew: L.crewOfTime(tms) } : null;
+          await DB.saveSampleBundle(sample, holdFn, alertObj);
+          await reloadData();
+          nS++; if (alertObj) lastBad = sample;
+        } else if (r.kind === 'maize') {
+          const j = (S.jobs || []).find(x => x.uid === r.jobUid);
+          const calc = r.dry !== null && j.status === 'running' ? window.Prod.readingCalc(j, r.dry, S.cfgP) : null;
+          const sh = L.shiftOf(r.t);
+          const rd = { uid: crypto.randomUUID(), deviceId: S.deviceId, createdAt: new Date().toISOString(), t: r.t, crew: L.crewOfTime(r.t), period: sh.period, prodDay: sh.day,
+            m0: r.dry, mTempered: r.wet, waterLh: calc && !calc.error ? calc.waterLh : null, over: !!(calc && calc.over), by: String(w.operator).trim(),
+            kind: 'lab', source: 'whatsapp', sourceText: m.raw, instrument: m.equipment || null };
+          await DB.put('jobs', Object.assign({}, j, { readings: (j.readings || []).concat([rd]) }));
+          await PU.reload();
+          nM++;
+        }
+      } catch (e) { console.warn('wa import', e); toast(t('saveFailed')); break; }
+    }
+    S.operator = String(w.operator).trim(); await DB.setConfig('operator', S.operator);
+    S.wa = null;
+    if (lastBad) raiseAlert(lastBad);
+    toast(t('waDone', { s: nS, m: nM }));
     S.view = 'home'; render();
   }
 
@@ -653,7 +755,7 @@
   document.addEventListener('click', async e => {
     const pel = e.target.closest(PU.CLICK_SEL);
     if (pel) return PU.onClick(pel);
-    const el = e.target.closest('[data-nav],[data-newsample],[data-run],[data-phys],[data-haction],[data-detail],[data-correct],[data-repday],#saveSample,#closeModal,#genXlsx,#savePin,#openLimits,#saveLimits,#saveLines,#askNotif,#testAlert,#exportBk,#exportLim');
+    const el = e.target.closest('[data-nav],[data-newsample],[data-run],[data-phys],[data-haction],[data-detail],[data-correct],[data-repday],#saveSample,#waParse,#waImport,#closeModal,#genXlsx,#savePin,#openLimits,#saveLimits,#saveLines,#askNotif,#testAlert,#exportBk,#exportLim');
     if (!el) return;
     if (el.dataset.nav) { S.view = el.dataset.nav; S.modal = null; if (S.view === 'prodset') S.prodDraft = null; if (S.view === 'sample' && !S.form) newForm(); render(); window.scrollTo(0, 0); return; }
     if (el.dataset.repday) { S.repDay = el.dataset.repday; S.view = 'report'; render(); return; }
@@ -665,6 +767,8 @@
     if (el.dataset.detail) { if (e.target.closest('a,button')) return; const id = el.dataset.detail; S.detailId = S.detailId === id ? null : id; render(); return; }
     switch (el.id) {
       case 'saveSample': return saveSample();
+      case 'waParse': waAnalyse(); render(); return;
+      case 'waImport': return waImport();
       case 'closeModal': S.modal = null; render(); return;
       case 'genXlsx': return genExcel();
       case 'savePin': return savePin();
@@ -681,6 +785,7 @@
     const el = e.target;
     if (PU.onInput(el)) return;
     if (el.dataset.val && S.form) { S.form.values[el.dataset.val] = el.value; updateLive(); return; }
+    if (el.id === 'waText' || el.id === 'waOp') { const w = waState(); if (el.id === 'waText') { w.text = el.value; w.rows = null; } else w.operator = el.value; return; }
     if (!S.form) return;
     if (el.id === 'f_op') S.form.operator = el.value;
     if (el.id === 'f_notes') S.form.notes = el.value;
@@ -690,6 +795,7 @@
   document.addEventListener('change', async e => {
     const el = e.target;
     if (PU.onChange(el)) return;
+    if (el.id === 'waLine' || el.id === 'waDay') { const w = waState(); if (el.id === 'waLine') w.lineId = el.value; else if (el.value) w.day = el.value; if (w.rows) waAnalyse(); render(); return; }
     if (el.dataset.lineprod) return changeLineProduct(el.dataset.lineprod, el.value, el);
     if (el.id === 'f_line') { S.form.lineId = el.value; const st = S.lineState[el.value]; if (st && st.productId) S.form.productId = st.productId; render(); return; }
     if (el.id === 'f_prod') { S.form.productId = el.value; render(); return; }
