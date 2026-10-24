@@ -6,7 +6,7 @@
 (function (root) {
   'use strict';
 
-  const VERSION = '2.3.0';
+  const VERSION = '2.3.1';
   const DECISIONS = ['record', 'accept', 'warn', 'reject'];   // ordem de gravidade
   const RANK = { record: 0, accept: 1, warn: 2, reject: 3 };
   const CREWS = ['A', 'B', 'C', 'D'];

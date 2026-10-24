@@ -1,4 +1,6 @@
-# Moagem — Controlo de Qualidade (auto-controlo) + Produção · v2.3.0
+# Prod-Mgt — Moagem: Controlo de Qualidade (auto-controlo) + Produção · v2.3.1
+
+> **v2.3.1 (24-10-2026) — novo nome: Prod-Mgt** (antes Mill-QC). Novo endereço: https://ray2112.github.io/Prod-Mgt/ — reinstale a app a partir deste endereço; os registos e a ligação ao Dropbox mantêm-se. A pasta do Dropbox continua `/Apps/Mill-CD/` e os ficheiros diários mantêm o nome `AAAA-MM-DD_FMO_MillQC.json`. New name **Prod-Mgt** (formerly Mill-QC); reinstall from the new address; records and the Dropbox link are kept; Dropbox folder and file names unchanged.
 
 > **v2.3.0 (24-10-2026) — importar resultados do WhatsApp.** Amostra → "Colar do WhatsApp": cole as mensagens do grupo do CQ, escolha a linha e o dia de produção e carregue em "Analisar". A pré-visualização mostra cada amostra com a decisão (aceite / aviso / rejeitado) pelos limites da app; só depois de "Importar" é que é gravada, como uma amostra manual (mesmas retenções e alertas), com a origem, o equipamento e o texto original da mensagem. Formato reconhecido: hora ("9h"), "Milho Seco-", "Milho Húmido-16.8%", nome do produto ("Fuba Amarela" = Fuba 2), "Humidade / Proteínas / Cinzas / Gorduras / Fibras -valor%", "Equipamento em uso: …"; aceita o cabeçalho "[09:39, 24/10/2026] Nome:". Valor vazio = não medido; linha ou produto não reconhecido = assinalado, nunca adivinhado. A humidade do milho (seco e húmido) vai para a ordem em curso na linha à hora da mensagem; sem ordem, não é gravada. Colar a mesma mensagem duas vezes não duplica.
 
@@ -6,7 +8,7 @@
 
 > **v2.1.0 (23-10-2026) — registos diários para o Dropbox (FMIP).** Com o Dropbox ligado, depois de cada gravação (espera de 5 s) a app envia um ficheiro por dia de produção (07:00–07:00) para `/Apps/Mill-CD/records/AAAA-MM-DD_FMO_MillQC.json`, com todos os registos desse dia (amostras, retenções, alertas, alterações de limites, relatórios, ordens, eventos das bins, diário de turno, snapshots, alterações de produção, transferências de grão) e um manifesto (contagens por loja, incluindo zeros, e por turno). Os registos em modo de teste vão para `/records-test/`. Só são enviados os dias que mudaram; um envio falhado fica pendente e é repetido na gravação seguinte, ao abrir a app ou com "Enviar agora" (Definições). O estado do último envio e as falhas aparecem em Definições. O PIN e a configuração local nunca são enviados.
 
-> **v2.0.0 (23-10-2026) — ligação ao Dropbox para a Mill-App.** Definições → "Ligar ao Dropbox" (uma vez por dispositivo). Depois de cada gravação, a app envia o `bins-status.json` (saldo e transferências de cada silo de milho sujo desde o último vazio) para `/Apps/Mill-CD/`. A Mill-App lê este ficheiro para verificar as descargas e conciliar silo a silo (tolerância 0 kg). Sem ligação, nada é enviado e a cópia local continua a ser guardada. A chave secreta da app Dropbox não está no código.
+> **v2.0.0 (23-10-2026) — ligação ao Dropbox para a Grain-Mgt.** Definições → "Ligar ao Dropbox" (uma vez por dispositivo). Depois de cada gravação, a app envia o `bins-status.json` (saldo e transferências de cada silo de milho sujo desde o último vazio) para `/Apps/Mill-CD/`. A Grain-Mgt lê este ficheiro para verificar as descargas e conciliar silo a silo (tolerância 0 kg). Sem ligação, nada é enviado e a cópia local continua a ser guardada. A chave secreta da app Dropbox não está no código.
 > - Correcção: a lista de silos de milho sujo na transferência mostrava a capacidade 1000 vezes maior.
 
 > **v1.7.0 (15-10-2026) — união das alterações de 1.5.0 e contrato v1 com a v1.6.0.** Quantidades em kg (migração única de t para kg), 61 códigos de paragem do ficheiro `2026-09-30_FMO_Downtime_Codes_v2.xlsx` com Tier 3 e tratamento OEE, registos com `uid`, `deviceId`, `createdAt` e turno. A turma passa a ser **derivada da data e hora** pela rotação de 8 turnos (ancora 14-10-2026 07:00 = C; ciclo C B A C D A B D), já não é escolhida no ecrã.
@@ -31,9 +33,9 @@
 
 **PT** · [EN abaixo](#english)
 
-App offline (PWA) para o auto-controlo de qualidade nas linhas de moagem. Separada da app de Silos (`Mill-App`): repositório, endereço, base de dados (`moagem-cq`) e cache próprios.
+App offline (PWA) para o auto-controlo de qualidade nas linhas de moagem. Separada da app de Silos (`Grain-Mgt`): repositório, endereço, base de dados (`moagem-cq`) e cache próprios.
 
-Endereço (depois de publicada): https://ray2112.github.io/Mill-QC/
+Endereço (depois de publicada): https://ray2112.github.io/Prod-Mgt/
 
 ## O que faz
 - **Tipo de moagem:** Milho (configurado) · Trigo e Arroz (ainda sem produtos/limites).
@@ -50,7 +52,7 @@ Endereço (depois de publicada): https://ray2112.github.io/Mill-QC/
 - **Ordens de produção:** produto, linha, grão a moer (kg), silos de grão por ordem de descarga, silos de produto de destino, humidade inicial, impurezas, humidade alvo do grão temperado, caudal de grão (vazio = capacidade ÷ 24 h).
 - **Cálculos:** água = grão sujo × (alvo − inicial) ÷ (100 − alvo), total (L) e caudal (L/h); duração; produto esperado = grão × extracção alvo (só se definida).
 - **A ordem é bloqueada se:** a receita do produto (cores e graus de milho permitidos) não está definida ou o silo não cumpre; o grão disponível não chega (seleccione mais silos — esvazia o 1.º, depois o seguinte); um silo de grão tem evento de armazenagem Vermelho/Emergência aberto; um silo de produto já contém outro produto ou não é alimentado pela linha; a água necessária excede o molhador (2 500 L/h); a linha já tem ordem em curso; falta o stock de silos.
-- **Stock de grão:** importado da cópia de segurança da app de Silos (`Mill-App`). Ordens criadas depois da exportação descontam o grão (ordens fechadas pela quantidade real). O chefe de turno confirma que nenhum silo está retido na app de Silos.
+- **Stock de grão:** importado da cópia de segurança da app de Silos (`Grain-Mgt`). Ordens criadas depois da exportação descontam o grão (ordens fechadas pela quantidade real). O chefe de turno confirma que nenhum silo está retido na app de Silos.
 - **Integração com o CQ:** iniciar uma ordem põe a linha em produção no CQ com esse produto; os alertas e retenções do CQ aparecem na ordem. Fechar a ordem pára a linha no CQ.
 - **Silos de produto:** estado (vazio / produto) a partir das ordens; "Marcar vazio" com nome; "Definir conteúdo" (estado inicial) com PIN.
 - **Diário de turno:** ocorrências (categoria, linha, equipamento, paragem em min, acção; abertas até serem fechadas com resolução) e actividades (limpeza e arrumação por piso, reprocessamento em kg, limpeza de equipamento, manutenção, outra). Nada é editado: anula-se com motivo. Excel por turno (Ordens, Ocorrências, Actividades, Alertas, Silos de produto) e resumo por WhatsApp.
@@ -115,7 +117,7 @@ JS simples, sem compilação. `js/logic.js` regras puras (testes: `node tests/lo
 <a id="english"></a>
 ## English
 
-Offline PWA for in-process quality control (auto-control) on the mill lines. Separate from the Silos app (`Mill-App`): its own repo, address, database (`moagem-cq`) and cache.
+Offline PWA for in-process quality control (auto-control) on the mill lines. Separate from the Silos app (`Grain-Mgt`): its own repo, address, database (`moagem-cq`) and cache.
 
 > **v2.3.0 (24-10-2026) — import results from WhatsApp.** Sample → "Colar do WhatsApp": paste the QC group messages, choose the line and production day, and press "Analisar". The preview shows each sample with its decision (accept / warning / reject) against the app's limits; nothing is saved until "Importar", and then each sample is saved as a manual sample (same holds and alerts), with its source, instrument and the original message text. Recognised format: hour ("9h"), "Milho Seco-", "Milho Húmido-16.8%", product name ("Fuba Amarela" = Fuba 2), "Humidade / Proteínas / Cinzas / Gorduras / Fibras -value%", "Equipamento em uso: …"; the "[09:39, 24/10/2026] Name:" header is accepted. An empty value is not measured; an unknown line or product is flagged, never guessed. Maize moisture (dry and tempered) goes to the job running on the line at the message hour; with no job it is not saved. Pasting the same message twice does not duplicate.
 
@@ -123,7 +125,7 @@ Offline PWA for in-process quality control (auto-control) on the mill lines. Sep
 
 > **v2.1.0 (23-10-2026) — daily records to Dropbox (FMIP).** With Dropbox linked, after each save (5 s wait) the app uploads one file per production day (07:00–07:00) to `/Apps/Mill-CD/records/AAAA-MM-DD_FMO_MillQC.json`, holding every record of that day (samples, holds, alerts, limit changes, reports, jobs, bin events, shift log, snapshots, production changes, grain moves) and a manifest (counts per store, zeros included, and per shift). Test-mode records go to `/records-test/`. Only changed days are uploaded; a failed upload stays pending and retries on the next save, on opening the app, or with "Enviar agora" (Settings). Settings shows the last upload and any failure. The PIN and local configuration are never uploaded.
 
-> **v2.0.0 (23-10-2026) — Dropbox link for Mill-App.** Settings → "Ligar ao Dropbox" (once per device). After each save, the app sends `bins-status.json` (balance and transfers of each dirty maize bin since it was last emptied) to `/Apps/Mill-CD/`. Mill-App reads this file to check discharges and reconcile silo by silo (0 kg tolerance). Without the link nothing is sent and the local copy is still kept. The Dropbox app secret is not in the code.
+> **v2.0.0 (23-10-2026) — Dropbox link for Grain-Mgt.** Settings → "Ligar ao Dropbox" (once per device). After each save, the app sends `bins-status.json` (balance and transfers of each dirty maize bin since it was last emptied) to `/Apps/Mill-CD/`. Grain-Mgt reads this file to check discharges and reconcile silo by silo (0 kg tolerance). Without the link nothing is sent and the local copy is still kept. The Dropbox app secret is not in the code.
 > - Fix: the dirty maize bin list in the transfer form showed the capacity 1000 times too large.
 
 - **Mill type:** Maize (configured) · Wheat and Rice (no products/limits yet).

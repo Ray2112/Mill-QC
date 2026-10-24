@@ -1,7 +1,7 @@
 /* Textos PT (pré-AO90) / EN — chaves idênticas. */
 window.I18N = {
   pt: {
-    appTitle: 'Moagem — Controlo de Qualidade',
+    appTitle: 'Prod-Mgt — Produção e Qualidade',
     mill_maize: 'Milho', mill_wheat: 'Trigo', mill_rice: 'Arroz',
     millType: 'Tipo de moagem', notConfigured: 'Este tipo de moagem ainda não tem produtos nem limites configurados. Seleccione Milho em Definições.', notConfiguredShort: 'não configurado',
     crew: 'Turma', shift: 'Turno', shift_D: 'Dia', shift_N: 'Noite',
@@ -73,7 +73,7 @@ window.I18N = {
     warnMsg: 'Investigar o processo e aumentar a frequência de amostragem.', close: 'Fechar'
   },
   en: {
-    appTitle: 'Milling — Quality Control',
+    appTitle: 'Prod-Mgt — Production & Quality',
     mill_maize: 'Maize', mill_wheat: 'Wheat', mill_rice: 'Rice',
     millType: 'Mill type', notConfigured: 'This mill type has no products or limits configured yet. Select Maize in Settings.', notConfiguredShort: 'not configured',
     crew: 'Crew', shift: 'Shift', shift_D: 'Day', shift_N: 'Night',

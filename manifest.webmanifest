@@ -1,6 +1,6 @@
 {
-  "name": "Mill Mgt-App",
-  "short_name": "Mill Mgt-App",
+  "name": "Prod-Mgt",
+  "short_name": "Prod-Mgt",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
